@@ -1,0 +1,125 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:KTISV.ViewModels"
+        xmlns:views="using:KTISV.Views"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d" d:DesignWidth="1280" d:DesignHeight="900"
+        x:Class="KTISV.Views.MainWindow"
+        x:DataType="vm:MainWindowViewModel"
+        Icon="/Assets/ktisv.ico"
+        Title="KTISV — YouTube 人聲分離混音台"
+        Width="1300" Height="920" MinWidth="1080" MinHeight="720"
+        Background="#14161a"
+        RequestedThemeVariant="Dark">
+
+    <Design.DataContext>
+        <vm:MainWindowViewModel/>
+    </Design.DataContext>
+
+    <!--
+        這個檔案只是外殼:全域的傳輸列、分頁容器、狀態列。
+        各分頁的內容在 Views/*Tab.axaml,共用樣式在 Styles/Shared.axaml。
+    -->
+    <Panel>
+        <DockPanel LastChildFill="True">
+
+            <!-- ══ 狀態列(永遠可見)══════════════════════════════════ -->
+            <Border DockPanel.Dock="Bottom" Background="#0f1114" Padding="14,7"
+                    BorderBrush="#2a2e36" BorderThickness="0,1,0,0">
+                <Grid ColumnDefinitions="Auto,*,Auto,Auto">
+                    <Panel Grid.Column="0" Margin="0,0,8,0" VerticalAlignment="Center">
+                        <Ellipse Width="9" Height="9" Fill="#4caf50"
+                                 IsVisible="{Binding IsAudioRunning}"/>
+                        <Ellipse Width="9" Height="9" Fill="#5a626d"
+                                 IsVisible="{Binding !IsAudioRunning}"/>
+                    </Panel>
+                    <TextBlock Grid.Column="1" Classes="label" Text="{Binding StatusText}"
+                               TextTrimming="CharacterEllipsis"/>
+                    <TextBlock Grid.Column="2" Classes="label" Margin="12,0"
+                               Text="{Binding DiagnosticsText}"/>
+                    <TextBlock Grid.Column="3" Classes="hint"
+                               Text="{Binding EngineVersion, StringFormat='引擎 {0}'}"/>
+                </Grid>
+            </Border>
+
+            <!-- ══ 傳輸列(永遠可見,不隨分頁切換)════════════════════ -->
+            <Border DockPanel.Dock="Top" Background="#181b21" Padding="16,10"
+                    BorderBrush="#2a2e36" BorderThickness="0,0,0,1">
+                <StackPanel Spacing="8">
+
+                    <Grid ColumnDefinitions="Auto,Auto,Auto,Auto,Auto,*,Auto,Auto"
+                          ColumnSpacing="8">
+                        <Button Grid.Column="0" Classes="transport" Content="⏮"
+                                ToolTip.Tip="上一首"
+                                Command="{Binding PlayPreviousCommand}"
+                                IsVisible="{Binding HasPlaylist}"/>
+                        <Button Grid.Column="1" Classes="transport"
+                                Content="{Binding PlayPauseGlyph}"
+                                Command="{Binding PlayPauseCommand}"/>
+                        <Button Grid.Column="2" Classes="transport" Content="⏭"
+                                ToolTip.Tip="下一首"
+                                Command="{Binding PlayNextCommand}"
+                                IsVisible="{Binding HasPlaylist}"/>
+                        <Button Grid.Column="3" Classes="transport" Content="⏹"
+                                Command="{Binding StopCommand}"/>
+                        <CheckBox Grid.Column="4" Content="循環" Margin="6,0"
+                                  IsChecked="{Binding Loop}"/>
+
+                        <Grid Grid.Column="5" ColumnDefinitions="Auto,*,Auto"
+                              ColumnSpacing="8" VerticalAlignment="Center">
+                            <TextBlock Grid.Column="0" Classes="value" Width="52"
+                                       Text="{Binding PositionText}"/>
+                            <Slider Grid.Column="1" Name="SeekSlider" Minimum="0"
+                                    Maximum="{Binding DurationSeconds}"
+                                    Value="{Binding PositionSeconds}"
+                                    VerticalAlignment="Center"/>
+                            <TextBlock Grid.Column="2" Classes="value" Width="52"
+                                       Text="{Binding DurationText}"/>
+                        </Grid>
+
+                        <TextBlock Grid.Column="6" Classes="label" MaxWidth="280"
+                                   Margin="8,0,0,0" TextTrimming="CharacterEllipsis"
+                                   Text="{Binding TrackTitle}"/>
+                        <Button Grid.Column="7" Content="取消"
+                                Command="{Binding CancelLoadCommand}"
+                                IsVisible="{Binding IsBusy}"/>
+                    </Grid>
+
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12"
+                          IsVisible="{Binding IsBusy}">
+                        <ProgressBar Grid.Column="0" Minimum="0" Maximum="100"
+                                     Value="{Binding Progress}" Height="4"/>
+                        <TextBlock Grid.Column="1" Classes="hint"
+                                   Text="{Binding ProgressStage}"/>
+                    </Grid>
+
+                    <Border Background="#3a2a12" CornerRadius="6" Padding="10,6"
+                            IsVisible="{Binding NeedsReload}">
+                        <TextBlock Classes="hint" Foreground="#f0c674"
+                                   Text="分離設定已變更 —— 請重新載入這首歌讓新設定生效。"/>
+                    </Border>
+                </StackPanel>
+            </Border>
+
+            <!-- ══ 分頁 ═══════════════════════════════════════════════ -->
+            <TabControl Classes="main" SelectedIndex="{Binding SelectedTabIndex}">
+                <TabItem Header="  YouTube 搜尋">
+                    <views:YouTubeTab/>
+                </TabItem>
+                <TabItem Header="  卡拉 OK 設定">
+                    <views:KaraokeTab/>
+                </TabItem>
+                <TabItem Header="  EQ 調整">
+                    <views:EqTab/>
+                </TabItem>
+                <TabItem Header="  其他設定">
+                    <views:SettingsTab/>
+                </TabItem>
+            </TabControl>
+        </DockPanel>
+
+        <!-- ══ 首次啟動精靈(覆蓋層)═══════════════════════════════════ -->
+        <views:SetupWizard/>
+    </Panel>
+</Window>

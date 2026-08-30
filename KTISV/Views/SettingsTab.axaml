@@ -1,0 +1,148 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:KTISV.ViewModels"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             mc:Ignorable="d" d:DesignWidth="1280" d:DesignHeight="560"
+             x:Class="KTISV.Views.SettingsTab"
+             x:DataType="vm:MainWindowViewModel">
+
+    <ScrollViewer>
+        <Grid Margin="14" ColumnDefinitions="*,*" ColumnSpacing="14">
+
+            <!-- ── 左欄 ────────────────────────────────────────────── -->
+            <StackPanel Grid.Column="0" Spacing="14">
+
+                <Border Classes="card">
+                    <StackPanel Spacing="10">
+                        <TextBlock Classes="heading" Text="介面"/>
+                        <Grid ColumnDefinitions="90,*">
+                            <TextBlock Grid.Column="0" Classes="label" Text="語言"/>
+                            <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                      ItemsSource="{Binding Languages}"
+                                      SelectedIndex="{Binding LanguageIndex}"/>
+                        </Grid>
+                        <TextBlock Classes="hint" Text="{Binding LanguageHint}"/>
+                    </StackPanel>
+                </Border>
+
+                <Border Classes="card">
+                    <StackPanel Spacing="10">
+                        <TextBlock Classes="heading" Text="低延遲"/>
+                        <CheckBox Content="WASAPI 獨佔模式"
+                                  IsChecked="{Binding ExclusiveMode}"/>
+                        <Grid ColumnDefinitions="90,*">
+                            <TextBlock Grid.Column="0" Classes="label" Text="緩衝大小"/>
+                            <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                      ItemsSource="{Binding BlockSizes}"
+                                      SelectedIndex="{Binding BlockSizeIndex}"/>
+                        </Grid>
+                        <TextBlock Classes="hint" Foreground="#8fbf8f"
+                                   Text="{Binding ExclusiveNote}"
+                                   IsVisible="{Binding ExclusiveNote,
+                                       Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+
+                        <TextBlock Classes="hint" Foreground="#f0a0a0" TextWrapping="Wrap"
+                                   Text="{Binding HostApiWarning}"
+                                   IsVisible="{Binding HostApiWarning,
+                                       Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+                        <TextBlock Classes="hint"
+                                   Text="獨佔模式是降低延遲最有效的一步(實測耳返 53 → 13 ms),代價是這些裝置會被本程式獨佔,其他程式發不出聲音 —— 包括 Discord 對方的語音。緩衝越小延遲越低,但太小會爆音;不確定就用自動調校。改動後會自動重開串流,設定會記住。"/>
+
+                        <Separator Background="#2a2e36"/>
+
+                        <TextBlock Classes="label" Text="自動調校"/>
+                        <Button Content="開始自動調校" HorizontalAlignment="Stretch"
+                                Command="{Binding TuneLatencyCommand}"
+                                IsEnabled="{Binding !IsTuning}"/>
+
+                        <StackPanel Spacing="4" IsVisible="{Binding IsTuning}">
+                            <ProgressBar Height="3" Minimum="0" Maximum="100"
+                                         Value="{Binding TuneProgress}"/>
+                        </StackPanel>
+
+                        <TextBlock Classes="hint" Foreground="#8fbf8f"
+                                   Text="{Binding TuneStatus}"
+                                   IsVisible="{Binding TuneStatus,
+                                       Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+
+                        <TextBlock Classes="hint"
+                                   Text="會在你的機器上逐一實測緩衝大小,挑出不掉幀的最低延遲,並沿用上面的獨佔模式設定。掃描期間聲音會斷續,約需半分鐘。"/>
+                    </StackPanel>
+                </Border>
+
+                <Border Classes="card">
+                    <StackPanel Spacing="10">
+                        <TextBlock Classes="heading" Text="虛擬麥克風"/>
+                        <TextBlock Classes="hint" Text="{Binding VirtualFamilies}"/>
+
+                        <Border Background="#3a1f1f" CornerRadius="6" Padding="10,8"
+                                IsVisible="{Binding !HasVirtualInput}">
+                            <StackPanel Spacing="6">
+                                <TextBlock Classes="hint" Foreground="#f0a0a0"
+                                           Text="沒有偵測到虛擬麥克風。要讓 Discord 聽到混音,需要安裝一張虛擬音效卡。"/>
+                                <TextBlock Classes="hint"
+                                           Text="建議 VB-CABLE(免費):安裝後把這裡的「虛擬麥克風」選 CABLE Input,Discord 的輸入選 CABLE Output。"/>
+                            </StackPanel>
+                        </Border>
+
+                        <Button Content="重新偵測裝置" HorizontalAlignment="Stretch"
+                                Command="{Binding RefreshDevicesCommand}"/>
+
+                        <StackPanel Spacing="6" IsVisible="{Binding CanInstallBundledDriver}">
+                            <Separator Background="#2a2e36"/>
+                            <TextBlock Classes="label" Text="內建驅動(進階)"/>
+                            <Button Content="安裝虛擬音訊驅動"
+                                    HorizontalAlignment="Stretch"
+                                    Command="{Binding InstallDriverCommand}"
+                                    IsEnabled="{Binding !IsInstallingDriver}"/>
+                            <TextBlock Classes="hint"
+                                       Text="需要系統管理員權限。部分 Windows 版本會因驅動簽章而失敗,失敗時請改用 VB-CABLE。"/>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+
+            <!-- ── 右欄 ────────────────────────────────────────────── -->
+            <StackPanel Grid.Column="1" Spacing="14">
+
+                <Border Classes="card">
+                    <StackPanel Spacing="8">
+                        <TextBlock Classes="heading" Text="狀態"/>
+                        <Grid ColumnDefinitions="110,*" RowDefinitions="Auto,Auto,Auto,Auto"
+                              RowSpacing="4">
+                            <TextBlock Grid.Row="0" Grid.Column="0" Classes="label" Text="引擎版本"/>
+                            <TextBlock Grid.Row="0" Grid.Column="1" Classes="value"
+                                       HorizontalAlignment="Left" Text="{Binding EngineVersion}"/>
+                            <TextBlock Grid.Row="1" Grid.Column="0" Classes="label" Text="效能"/>
+                            <TextBlock Grid.Row="1" Grid.Column="1" Classes="value"
+                                       HorizontalAlignment="Left" Text="{Binding DiagnosticsText}"/>
+                            <TextBlock Grid.Row="2" Grid.Column="0" Classes="label" Text="耳返延遲"/>
+                            <TextBlock Grid.Row="2" Grid.Column="1" Classes="value"
+                                       HorizontalAlignment="Left" Text="{Binding LatencyText}"/>
+                            <TextBlock Grid.Row="3" Grid.Column="0" Classes="label" Text="Demucs"/>
+                            <TextBlock Grid.Row="3" Grid.Column="1" Classes="value"
+                                       HorizontalAlignment="Left" TextWrapping="Wrap"
+                                       Text="{Binding DemucsStatus}"/>
+                        </Grid>
+                        <Button Content="儲存目前設定" HorizontalAlignment="Stretch"
+                                Command="{Binding SaveSettingsCommand}"/>
+                    </StackPanel>
+                </Border>
+
+                <Border Classes="card">
+                    <DockPanel LastChildFill="True" Height="300">
+                        <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto">
+                            <TextBlock Grid.Column="0" Classes="heading" Text="記錄"/>
+                            <Button Grid.Column="1" Classes="tiny" Content="清除"
+                                    Command="{Binding ClearLogCommand}"/>
+                        </Grid>
+                        <ListBox Margin="0,8,0,0" ItemsSource="{Binding LogLines}"
+                                 Background="#121418"
+                                 FontFamily="Consolas,Menlo,monospace" FontSize="11"/>
+                    </DockPanel>
+                </Border>
+            </StackPanel>
+        </Grid>
+    </ScrollViewer>
+</UserControl>

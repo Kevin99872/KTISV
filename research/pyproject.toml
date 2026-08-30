@@ -1,0 +1,69 @@
+[project]
+name = "ktisv-research"
+version = "0.1.0"
+description = "KTISV 人聲分離的評估與訓練工具"
+requires-python = ">=3.10,<3.13"
+
+# 基礎:只做指標計算與資料集管理,不需要 GPU
+dependencies = [
+    "numpy>=1.26",
+    "scipy>=1.11",
+    "soundfile>=0.12",
+    "tqdm>=4.66",
+    "requests>=2.31",
+    # soundfile 讀不了 m4a / webm / opus,而真實音樂大多是這些格式。
+    # imageio-ffmpeg 內附靜態 ffmpeg,不需要使用者自行安裝。
+    "imageio-ffmpeg>=0.4.9",
+]
+
+[project.optional-dependencies]
+# uv sync --extra eval   — BSS Eval(SDR/SIR/SAR 分量)
+#
+# 用 fast_bss_eval 而非 museval:museval 會拉進 musdb → stempeg,
+# 那條相依鏈要求系統上同時有 ffmpeg 與 ffprobe。為了一個數學運算
+# 就要動使用者的系統環境不划算,而 fast_bss_eval 是純 Python 實作。
+eval = [
+    "fast-bss-eval>=0.1.4",
+]
+# uv sync --extra museval — 需要與官方排行榜完全一致的數字時才裝
+# (另外需要系統安裝 ffmpeg + ffprobe)
+museval = [
+    "museval>=0.4.1",
+]
+# uv sync --extra torch  — 推論與訓練(GPU 版,見下方 index 設定)
+torch = [
+    "torch>=2.1",
+    "torchaudio>=2.1",
+    "demucs>=4.0.1",
+]
+# uv sync --extra onnx   — 把訓練好的模型匯出給 C# 端的 ONNX Runtime
+#
+# onnx 是匯出時寫檔用的;onnxruntime 只用來在匯出後立刻驗證一次
+# 「ONNX 跑出來的和 PyTorch 一樣」。少了這道驗證,錯誤會拖到 C# 端
+# 聽起來怪怪的時候才浮現,那時已經很難分辨是誰的問題。
+onnx = [
+    "onnx>=1.16",
+    "onnxruntime>=1.18",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["ktisv_research"]
+
+[tool.uv]
+package = true
+
+# PyPI 的 Windows torch 預設是 CPU 版,必須指定 PyTorch 官方索引才拿得到
+# CUDA 版。這裡用 cu130 對應本機的 CUDA 13.2。
+# 換卡或換 CUDA 版本時只要改這兩處的 cu130。
+[[tool.uv.index]]
+name = "pytorch-cuda"
+url = "https://download.pytorch.org/whl/cu130"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cuda" }
+torchaudio = { index = "pytorch-cuda" }

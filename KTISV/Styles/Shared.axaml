@@ -1,0 +1,79 @@
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <!--
+        全應用程式共用的樣式。放在這裡而非 Window.Styles,是為了讓各分頁的
+        UserControl 都能取用 —— 它們是獨立檔案,不該依賴某個特定視窗。
+    -->
+
+    <Style Selector="Border.card">
+        <Setter Property="Background" Value="#1c1f25"/>
+        <Setter Property="BorderBrush" Value="#2a2e36"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="CornerRadius" Value="8"/>
+        <Setter Property="Padding" Value="14"/>
+    </Style>
+
+    <Style Selector="Border.panel">
+        <Setter Property="Background" Value="#22262e"/>
+        <Setter Property="CornerRadius" Value="6"/>
+        <Setter Property="Padding" Value="10"/>
+    </Style>
+
+    <Style Selector="TextBlock.heading">
+        <Setter Property="FontSize" Value="14"/>
+        <Setter Property="FontWeight" Value="SemiBold"/>
+        <Setter Property="Foreground" Value="#e8eef5"/>
+    </Style>
+
+    <Style Selector="TextBlock.label">
+        <Setter Property="FontSize" Value="12"/>
+        <Setter Property="Foreground" Value="#8d97a5"/>
+        <Setter Property="VerticalAlignment" Value="Center"/>
+    </Style>
+
+    <Style Selector="TextBlock.value">
+        <Setter Property="FontSize" Value="12"/>
+        <Setter Property="Foreground" Value="#c8d2de"/>
+        <Setter Property="VerticalAlignment" Value="Center"/>
+        <Setter Property="HorizontalAlignment" Value="Right"/>
+        <Setter Property="FontFamily" Value="Consolas,Menlo,monospace"/>
+    </Style>
+
+    <Style Selector="TextBlock.hint">
+        <Setter Property="FontSize" Value="11"/>
+        <Setter Property="Foreground" Value="#6b7482"/>
+        <Setter Property="TextWrapping" Value="Wrap"/>
+    </Style>
+
+    <Style Selector="CheckBox">
+        <Setter Property="Foreground" Value="#d5dde7"/>
+    </Style>
+
+    <Style Selector="Button.transport">
+        <Setter Property="Width" Value="44"/>
+        <Setter Property="Height" Value="34"/>
+        <Setter Property="FontSize" Value="15"/>
+        <Setter Property="HorizontalContentAlignment" Value="Center"/>
+    </Style>
+
+    <Style Selector="Button.accent">
+        <Setter Property="Background" Value="#2f7de1"/>
+        <Setter Property="Foreground" Value="White"/>
+    </Style>
+    <Style Selector="Button.accent:pointerover /template/ ContentPresenter">
+        <Setter Property="Background" Value="#4a92ea"/>
+    </Style>
+
+    <Style Selector="Button.tiny">
+        <Setter Property="Padding" Value="6,2"/>
+        <Setter Property="FontSize" Value="11"/>
+        <Setter Property="MinWidth" Value="0"/>
+    </Style>
+
+    <!-- 分頁列:大一點、好點 -->
+    <Style Selector="TabControl.main > TabItem">
+        <Setter Property="FontSize" Value="14"/>
+        <Setter Property="Padding" Value="16,10"/>
+        <Setter Property="MinHeight" Value="0"/>
+    </Style>
+</Styles>

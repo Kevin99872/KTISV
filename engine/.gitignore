@@ -1,0 +1,12 @@
+# uv 虛擬環境與鎖檔快取
+.venv/
+.venv-demucs/
+
+# PyInstaller
+build/
+dist/
+*.spec.bak
+
+# Python
+__pycache__/
+*.pyc

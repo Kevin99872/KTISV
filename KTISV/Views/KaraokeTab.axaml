@@ -1,0 +1,517 @@
+﻿<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:KTISV.ViewModels"
+             xmlns:controls="using:KTISV.Controls"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             mc:Ignorable="d" d:DesignWidth="1280" d:DesignHeight="560"
+             x:Class="KTISV.Views.KaraokeTab"
+             x:DataType="vm:MainWindowViewModel">
+
+    <ScrollViewer>
+        <Grid Margin="14" ColumnDefinitions="*,*,330" ColumnSpacing="14">
+
+            <!-- ── ① 影片音源 ────────────────────────────────────────── -->
+            <Border Grid.Column="0" Classes="card">
+                <StackPanel Spacing="10">
+                    <TextBlock Classes="heading" Text=" 影片音源"/>
+
+                    <Border Classes="panel">
+                        <StackPanel Spacing="8">
+                            <TextBlock Classes="label" Text="人曲分離"/>
+                            <CheckBox Content="剝離人聲(留伴奏 · 卡拉 OK)"
+                                      IsChecked="{Binding RemoveVocals}"/>
+                            <CheckBox Content="剝離伴奏(只留人聲)"
+                                      IsChecked="{Binding RemoveInstrumental}"/>
+
+                            <Separator Background="#2a2e36" Margin="0,2"/>
+
+                            <TextBlock Classes="label" Text="分離引擎"/>
+                            <ComboBox ItemsSource="{Binding SeparationEngines}"
+                                      SelectedIndex="{Binding SeparationEngineIndex}"
+                                      HorizontalAlignment="Stretch"/>
+
+                            <!-- 即時模式的設定 -->
+                            <StackPanel Spacing="6" IsVisible="{Binding IsRealtimeSeparation}">
+                                <TextBlock Classes="label" Text="演算法"/>
+                                <ComboBox ItemsSource="{Binding SeparatorQualities}"
+                                          SelectedIndex="{Binding SeparatorQualityIndex}"
+                                          HorizontalAlignment="Stretch"/>
+                                <TextBlock Classes="hint" Text="{Binding SeparatorQualityHint}"/>
+
+                                <Grid ColumnDefinitions="72,*,58">
+                                    <TextBlock Grid.Column="0" Classes="label" Text="強度"/>
+                                    <Slider Grid.Column="1" Minimum="0" Maximum="100"
+                                            Value="{Binding SeparationStrength}"/>
+                                    <TextBlock Grid.Column="2" Classes="value"
+                                               Text="{Binding SeparationStrength, StringFormat='{}{0:0}%'}"/>
+                                </Grid>
+                                <Grid ColumnDefinitions="72,*,58">
+                                    <TextBlock Grid.Column="0" Classes="label" Text="保留低頻"/>
+                                    <Slider Grid.Column="1" Minimum="20" Maximum="600"
+                                            Value="{Binding SeparationLowCut}"/>
+                                    <TextBlock Grid.Column="2" Classes="value"
+                                               Text="{Binding SeparationLowCut, StringFormat='{}{0:0}Hz'}"/>
+                                </Grid>
+                                <Grid ColumnDefinitions="72,*,58">
+                                    <TextBlock Grid.Column="0" Classes="label" Text="保留高頻"/>
+                                    <Slider Grid.Column="1" Minimum="2000" Maximum="16000"
+                                            Value="{Binding SeparationHighCut}"/>
+                                    <TextBlock Grid.Column="2" Classes="value"
+                                               Text="{Binding SeparationHighCut, StringFormat='{}{0:0}Hz'}"/>
+                                </Grid>
+                                <Grid ColumnDefinitions="72,*,58"
+                                      IsVisible="{Binding IsSpectralSeparator}">
+                                    <TextBlock Grid.Column="0" Classes="label" Text="銳利度"/>
+                                    <Slider Grid.Column="1" Minimum="0.5" Maximum="6"
+                                            Value="{Binding SeparationSharpness}"/>
+                                    <TextBlock Grid.Column="2" Classes="value"
+                                               Text="{Binding SeparationSharpness, StringFormat='{}{0:0.0}'}"/>
+                                </Grid>
+                                <TextBlock Classes="hint"
+                                           Text="銳利度越高,只移除「非常置中」的內容,伴奏越安全;越低則移除得更徹底但誤傷較多。"/>
+                            </StackPanel>
+
+                            <!-- Demucs 模式的設定 -->
+                            <StackPanel Spacing="6" IsVisible="{Binding !IsRealtimeSeparation}">
+                                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                                    <TextBlock Grid.Column="0" Classes="label"
+                                               Text="{Binding DemucsStatus}" TextWrapping="Wrap"/>
+                                    <Button Grid.Column="1" Classes="tiny" Content="偵測"
+                                            Command="{Binding ProbeDemucsCommand}"/>
+                                </Grid>
+                                <Grid ColumnDefinitions="72,*,58">
+                                    <TextBlock Grid.Column="0" Classes="label" Text="位移平均"/>
+                                    <Slider Grid.Column="1" Minimum="0" Maximum="5"
+                                            TickFrequency="1" IsSnapToTickEnabled="True"
+                                            Value="{Binding DemucsShifts}"/>
+                                    <TextBlock Grid.Column="2" Classes="value"
+                                               Text="{Binding DemucsShifts, StringFormat='{}{0:0}×'}"/>
+                                </Grid>
+                                <Grid ColumnDefinitions="72,*,58">
+                                    <TextBlock Grid.Column="0" Classes="label" Text="重疊"/>
+                                    <Slider Grid.Column="1" Minimum="0.1" Maximum="0.75"
+                                            Value="{Binding DemucsOverlap}"/>
+                                    <TextBlock Grid.Column="2" Classes="value"
+                                               Text="{Binding DemucsOverlap, StringFormat='{}{0:0.00}'}"/>
+                                </Grid>
+                                <TextBlock Classes="hint"
+                                           Text="位移平均能小幅提升品質,但處理時間成正比增加。重疊越高接縫越平滑。"/>
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- ── 升 key / 降 key ──────────────────────────── -->
+                    <Border Classes="panel">
+                        <StackPanel Spacing="8">
+                            <Grid ColumnDefinitions="Auto,*,Auto">
+                                <TextBlock Grid.Column="0" Classes="label" Text="歌曲 Key"/>
+                                <TextBlock Grid.Column="2" Classes="hint"
+                                           Text="{Binding MusicPitchDetail}"/>
+                            </Grid>
+
+                            <Grid ColumnDefinitions="44,*,44,Auto" ColumnSpacing="8">
+                                <Button Grid.Column="0" Content="♭" FontSize="17"
+                                        HorizontalAlignment="Stretch"
+                                        HorizontalContentAlignment="Center"
+                                        ToolTip.Tip="降半音"
+                                        Command="{Binding PitchDownCommand}"/>
+                                <Border Grid.Column="1" Background="#1a1d23" CornerRadius="4"
+                                        Padding="8,4">
+                                    <TextBlock Classes="value" FontSize="18"
+                                               HorizontalAlignment="Center"
+                                               Text="{Binding MusicPitchText}"/>
+                                </Border>
+                                <Button Grid.Column="2" Content="♯" FontSize="17"
+                                        HorizontalAlignment="Stretch"
+                                        HorizontalContentAlignment="Center"
+                                        ToolTip.Tip="升半音"
+                                        Command="{Binding PitchUpCommand}"/>
+                                <Button Grid.Column="3" Content="原調"
+                                        Command="{Binding ResetPitchCommand}"/>
+                            </Grid>
+
+                            <Slider Minimum="-12" Maximum="12" TickFrequency="1"
+                                    IsSnapToTickEnabled="True" TickPlacement="BottomRight"
+                                    Value="{Binding MusicPitchSemitones}"/>
+
+                            <TextBlock Classes="hint" Foreground="#8fbf8f"
+                                       IsVisible="{Binding MusicPitchLatencyHint,
+                                           Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                       Text="{Binding MusicPitchLatencyHint}"/>
+                            <TextBlock Classes="hint"
+                                       Text="只調整音樂,速度不變,你的聲音也不會被改 —— 目的是讓歌配合你的音域。超過 ±5 個半音之後會開始聽得出處理痕跡(尤其是鼓和鈸)。"/>
+                        </StackPanel>
+                    </Border>
+
+                    <CheckBox Content="靜音音樂" IsChecked="{Binding MusicMuted}"/>
+
+                    <StackPanel Spacing="4">
+                        <TextBlock Classes="label" Text="音樂電平"/>
+                        <controls:LevelMeter Height="14"
+                                             RmsDb="{Binding MusicOutMeter.RmsDb}"
+                                             PeakDb="{Binding MusicOutMeter.PeakDb}"
+                                             HoldDb="{Binding MusicOutMeter.HoldDb}"
+                                             IsClipping="{Binding MusicOutMeter.IsClipping}"/>
+                    </StackPanel>
+
+                    <Grid ColumnDefinitions="86,*,62" RowDefinitions="Auto,Auto,Auto" RowSpacing="6">
+                        <TextBlock Grid.Row="0" Grid.Column="0" Classes="label" Text="音樂音量"/>
+                        <Slider Grid.Row="0" Grid.Column="1" Minimum="-60" Maximum="12"
+                                Value="{Binding MusicFaderDb}"/>
+                        <TextBlock Grid.Row="0" Grid.Column="2" Classes="value"
+                                   Text="{Binding MusicFaderDb, StringFormat='{}{0:+0.0;-0.0;0.0}dB'}"/>
+
+                        <TextBlock Grid.Row="1" Grid.Column="0" Classes="label" Text="→ 耳機"/>
+                        <Slider Grid.Row="1" Grid.Column="1" Minimum="-60" Maximum="12"
+                                Value="{Binding MusicToHeadphoneDb}"/>
+                        <TextBlock Grid.Row="1" Grid.Column="2" Classes="value"
+                                   Text="{Binding MusicToHeadphoneDb, StringFormat='{}{0:+0.0;-0.0;0.0}dB'}"/>
+
+                        <TextBlock Grid.Row="2" Grid.Column="0" Classes="label" Text="→ 虛擬麥"/>
+                        <Slider Grid.Row="2" Grid.Column="1" Minimum="-60" Maximum="12"
+                                Value="{Binding MusicToVirtualDb}"/>
+                        <TextBlock Grid.Row="2" Grid.Column="2" Classes="value"
+                                   Text="{Binding MusicToVirtualDb, StringFormat='{}{0:+0.0;-0.0;0.0}dB'}"/>
+                    </Grid>
+
+                    <Separator Background="#2a2e36"/>
+
+                    <StackPanel Spacing="6">
+                        <Grid ColumnDefinitions="86,*,66,24" ColumnSpacing="4"
+                              RowDefinitions="Auto,Auto">
+                            <TextBlock Grid.Row="0" Grid.Column="0" Classes="label"
+                                       Text="DC 對時"/>
+                            <!-- 行程預設 ±300 ms(實際會用到的範圍,才夠細),
+                                 但會跟著輸入框打進來的值長大 —— 否則 Slider 會把
+                                 超出行程的值夾回來,使用者打的大數字就沒了。 -->
+                            <Slider Grid.Row="0" Grid.Column="1"
+                                    Minimum="{Binding DcDelaySliderMin}"
+                                    Maximum="{Binding DcDelaySliderMax}"
+                                    TickFrequency="50"
+                                    Value="{Binding DcDelayMs}"/>
+                            <controls:NumericTextBox Grid.Row="0" Grid.Column="2" Padding="6,3"
+                                    MinWidth="0" MinHeight="0" TextAlignment="Right"
+                                    FontFamily="Consolas,Menlo,monospace" FontSize="12"
+                                    VerticalAlignment="Center"
+                                    ToolTip.Tip="直接輸入毫秒數,按 Enter 送出。可正可負,不限大小。&#x0a;負值:歌聲放慢、音樂相對加快&#x0a;正值:音樂放慢、歌聲相對加快"
+                                    Text="{Binding DcDelayText,
+                                           UpdateSourceTrigger=LostFocus}"/>
+                            <TextBlock Grid.Row="0" Grid.Column="3" Classes="label" Text="ms"/>
+
+                            <!-- 推桿兩端各代表什麼,直接標在刻度下面 —— 不然使用者
+                                 得先往一邊拖、聽一次,才知道自己該往哪邊拖。 -->
+                            <Grid Grid.Row="1" Grid.Column="1" ColumnDefinitions="*,Auto,*"
+                                  Margin="0,2,0,0">
+                                <TextBlock Grid.Column="0" Classes="hint" FontSize="11"
+                                           HorizontalAlignment="Left" Foreground="#d0a070"
+                                           Text="◀ 歌聲放慢・音樂相對加快"/>
+                                <TextBlock Grid.Column="1" Classes="hint" FontSize="11"
+                                           Foreground="#6b7280" Text="同步"/>
+                                <TextBlock Grid.Column="2" Classes="hint" FontSize="11"
+                                           HorizontalAlignment="Right" Foreground="#70a8d0"
+                                           Text="音樂放慢・歌聲相對加快 ▶"/>
+                            </Grid>
+                        </Grid>
+
+                        <TextBlock Classes="value" HorizontalAlignment="Left"
+                                   Text="{Binding DcDelayDirectionText}"/>
+
+                        <Border Background="#1a1d23" CornerRadius="4" Padding="8,6">
+                            <StackPanel Spacing="6">
+                                <TextBlock Classes="label" Text="用念的量(音遊式校準)"/>
+
+                                <Button Content="▶  開始校準 —— 跟著念 1 2 3 4"
+                                        HorizontalAlignment="Stretch"
+                                        HorizontalContentAlignment="Center"
+                                        Command="{Binding StartCalibrationCommand}"
+                                        IsVisible="{Binding !IsCalibrating}"/>
+
+                                <StackPanel Spacing="4" IsVisible="{Binding IsCalibrating}">
+                                    <ProgressBar Height="4" Minimum="0" Maximum="100"
+                                                 Value="{Binding CalibrationProgress}"/>
+                                    <Button Content="停止" HorizontalAlignment="Stretch"
+                                            HorizontalContentAlignment="Center"
+                                            Command="{Binding CancelCalibrationCommand}"/>
+                                </StackPanel>
+
+                                <TextBlock Classes="value" HorizontalAlignment="Left"
+                                           TextWrapping="Wrap"
+                                           Text="{Binding CalibrationStatus}"
+                                           IsVisible="{Binding CalibrationStatus,
+                                               Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+
+                                <TextBlock Classes="hint" TextWrapping="Wrap"
+                                           Text="{Binding CalibrationResult}"
+                                           IsVisible="{Binding CalibrationResult,
+                                               Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+
+                                <Button Content="套用到對時" HorizontalAlignment="Stretch"
+                                        HorizontalContentAlignment="Center"
+                                        Command="{Binding ApplyCalibrationCommand}"
+                                        IsVisible="{Binding HasCalibrationResult}"/>
+
+                                <TextBlock Classes="hint"
+                                           Text="耳機會念出「1 2 3 4」,你跟著一起念出聲。引擎記下每一拍送出的時間,再從麥克風找出你實際出聲的位置,兩者的差就是要補的量 —— 包含耳機延遲、你的反應、麥克風延遲。校準期間音樂與送出那一路會靜音,不會吵到通話中的人。"/>
+                            </StackPanel>
+                        </Border>
+
+                        <Grid ColumnDefinitions="*,*" ColumnSpacing="6">
+                            <Button Grid.Column="0" Content="套用建議起點"
+                                    HorizontalAlignment="Stretch"
+                                    HorizontalContentAlignment="Center"
+                                    Command="{Binding ApplySuggestedDcDelayCommand}"/>
+                            <Button Grid.Column="1" Content="歸零"
+                                    HorizontalAlignment="Stretch"
+                                    HorizontalContentAlignment="Center"
+                                    Command="{Binding ResetDcDelayCommand}"/>
+                        </Grid>
+
+                        <TextBlock Classes="hint" Foreground="#8fbf8f"
+                                   Text="{Binding DcDelayHint}"/>
+
+                        <Border Background="#1a1d23" CornerRadius="4" Padding="8,6">
+                            <StackPanel Spacing="6">
+                                <CheckBox Content="耳機改聽「送給 Discord 的訊號」"
+                                          IsChecked="{Binding MonitorSend}"/>
+                                <TextBlock Classes="hint"
+                                           Text="打開之後,同一份送出訊號分兩端 —— 一端進耳機、一端進虛擬麥,你聽到的就是對方聽到的。平常耳機聽的是還沒對時的本地混音,對時怎麼調都感覺不到,只能靠對方回報;要自己用耳朵校就得開這個。校完記得關掉,不然耳返會多背一段送出路徑的延遲。"/>
+                            </StackPanel>
+                        </Border>
+
+                        <TextBlock Classes="hint"
+                                   Text="「加快」是相對的:實際上只有一邊被往後挪,另一邊原地不動,所以聽起來就變早了。速度和音高都不會變,這跟升降 key 是兩回事。"/>
+                        <TextBlock Classes="hint"
+                                   Text="只影響送給 Discord 的那一路,自己的耳返不受影響。哪一邊被挪由號誌決定,任何時候只有一邊在延遲,所以多出來的延遲就等於你設的數字。"/>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <!-- ── ② 麥克風 ──────────────────────────────────────────── -->
+            <Border Grid.Column="1" Classes="card">
+                <StackPanel Spacing="10">
+                    <TextBlock Classes="heading" Text="麥克風"/>
+
+                    <StackPanel Spacing="4">
+                        <TextBlock Classes="label" Text="輸入裝置"/>
+                        <ComboBox ItemsSource="{Binding InputDevices}"
+                                  SelectedItem="{Binding MicDevice}"
+                                  DisplayMemberBinding="{Binding Display}"
+                                  HorizontalAlignment="Stretch"/>
+                    </StackPanel>
+
+                    <Border Classes="panel">
+                        <StackPanel Spacing="8">
+                            <CheckBox Content="聆聽自己的聲音(耳機監聽)"
+                                      IsChecked="{Binding MonitorSelf}"/>
+                            <Grid ColumnDefinitions="86,*,62">
+                                <TextBlock Grid.Column="0" Classes="label" Text="監聽音量"/>
+                                <Slider Grid.Column="1" Minimum="-60" Maximum="12"
+                                        Value="{Binding MicMonitorDb}"
+                                        IsEnabled="{Binding MonitorSelf}"/>
+                                <TextBlock Grid.Column="2" Classes="value"
+                                           Text="{Binding MicMonitorDb, StringFormat='{}{0:+0.0;-0.0;0.0}dB'}"/>
+                            </Grid>
+                            <Border Background="#1a1d23" CornerRadius="4" Padding="8,5"
+                                    IsVisible="{Binding LatencyText,
+                                        Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                                <TextBlock Classes="value" HorizontalAlignment="Left"
+                                           Text="{Binding LatencyText}"/>
+                            </Border>
+                            <TextBlock Classes="hint"
+                                       Text="監聽只送到耳機,不會影響 Discord 那一路。用喇叭時請關掉,否則會回授嘯叫。"/>
+                        </StackPanel>
+                    </Border>
+
+                    <Border Classes="panel">
+                        <StackPanel Spacing="8">
+                            <CheckBox Content="回音(ECHO)"
+                                      IsChecked="{Binding MicEchoEnabled}"/>
+
+                            <StackPanel Spacing="6" IsEnabled="{Binding MicEchoEnabled}">
+                                <Grid ColumnDefinitions="72,*,58">
+                                    <TextBlock Grid.Column="0" Classes="label" Text="回音時間"/>
+                                    <Slider Grid.Column="1" Minimum="20" Maximum="1000"
+                                            Value="{Binding MicEchoDelayMs}"/>
+                                    <TextBlock Grid.Column="2" Classes="value"
+                                               Text="{Binding MicEchoDelayMs, StringFormat='{}{0:0}ms'}"/>
+                                </Grid>
+                                <Grid ColumnDefinitions="72,*,58">
+                                    <TextBlock Grid.Column="0" Classes="label" Text="重複次數"/>
+                                    <Slider Grid.Column="1" Minimum="0" Maximum="90"
+                                            Value="{Binding MicEchoFeedback}"/>
+                                    <TextBlock Grid.Column="2" Classes="value"
+                                               Text="{Binding MicEchoFeedback, StringFormat='{}{0:0}%'}"/>
+                                </Grid>
+                                <Grid ColumnDefinitions="72,*,58">
+                                    <TextBlock Grid.Column="0" Classes="label" Text="回音量"/>
+                                    <Slider Grid.Column="1" Minimum="0" Maximum="100"
+                                            Value="{Binding MicEchoMix}"/>
+                                    <TextBlock Grid.Column="2" Classes="value"
+                                               Text="{Binding MicEchoMix, StringFormat='{}{0:0}%'}"/>
+                                </Grid>
+                                <Grid ColumnDefinitions="72,*,58">
+                                    <TextBlock Grid.Column="0" Classes="label" Text="高頻衰減"/>
+                                    <Slider Grid.Column="1" Minimum="0" Maximum="95"
+                                            Value="{Binding MicEchoDamping}"/>
+                                    <TextBlock Grid.Column="2" Classes="value"
+                                               Text="{Binding MicEchoDamping, StringFormat='{}{0:0}%'}"/>
+                                </Grid>
+                            </StackPanel>
+
+                            <TextBlock Classes="hint"
+                                       Text="唱歌好聽,講話會變得難聽懂,所以預設關閉。耳機與 Discord 兩邊聽到的是同一份效果。「高頻衰減」讓每次重複都比前一次暗一點,像真實空間的殘響;調到 0 會變成金屬罐般的重複。"/>
+                        </StackPanel>
+                    </Border>
+
+                    <Border Classes="panel">
+                        <StackPanel Spacing="8">
+                            <CheckBox Content="降噪(電流聲)"
+                                      IsChecked="{Binding MicDenoiseEnabled}"/>
+
+                            <StackPanel Spacing="8" IsEnabled="{Binding MicDenoiseEnabled}">
+                                <StackPanel Spacing="4">
+                                    <TextBlock Classes="label" Text="電源哼聲"/>
+                                    <ComboBox ItemsSource="{Binding HumOptions}"
+                                              SelectedIndex="{Binding MicHumIndex}"
+                                              HorizontalAlignment="Stretch"/>
+                                </StackPanel>
+
+                                <CheckBox Content="沒出聲時壓低嘶聲(閘門)"
+                                          IsChecked="{Binding MicGateEnabled}"/>
+
+                                <StackPanel Spacing="6" IsEnabled="{Binding MicGateEnabled}">
+                                    <Grid ColumnDefinitions="86,*,62">
+                                        <TextBlock Grid.Column="0" Classes="label" Text="靈敏度"/>
+                                        <Slider Grid.Column="1" Minimum="3" Maximum="30"
+                                                Value="{Binding MicGateMarginDb}"/>
+                                        <TextBlock Grid.Column="2" Classes="value"
+                                                   Text="{Binding MicGateMarginDb, StringFormat='{}{0:0}dB'}"/>
+                                    </Grid>
+                                    <Grid ColumnDefinitions="86,*,62">
+                                        <TextBlock Grid.Column="0" Classes="label" Text="壓多少"/>
+                                        <Slider Grid.Column="1" Minimum="6" Maximum="40"
+                                                Value="{Binding MicGateReductionDb}"/>
+                                        <TextBlock Grid.Column="2" Classes="value"
+                                                   Text="{Binding MicGateReductionDb, StringFormat='{}{0:0}dB'}"/>
+                                    </Grid>
+                                </StackPanel>
+
+                                <Button Content="重新學底噪" HorizontalAlignment="Stretch"
+                                        HorizontalContentAlignment="Center"
+                                        Command="{Binding LearnNoiseFloorCommand}"/>
+
+                                <TextBlock Classes="hint" Foreground="#8fbf8f"
+                                           Text="{Binding MicNoiseFloorText}"
+                                           IsVisible="{Binding MicNoiseFloorText,
+                                               Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+
+                                <TextBlock Classes="hint"
+                                           Text="哼聲是 50/60 Hz 的電源頻率,用陷波切掉,對人聲幾乎沒影響(實測衰減 54 dB)。嘶聲跟人聲頻譜重疊切不掉,只能在你沒出聲時壓下去 —— 靈敏度是「比底噪高多少才算你在講話」,咬掉句尾就調高一點。門檻會自己追蹤環境,換麥克風才需要按重新學。"/>
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+
+                    <CheckBox Content="靜音麥克風" IsChecked="{Binding MicMuted}"/>
+
+                    <StackPanel Spacing="4">
+                        <TextBlock Classes="label" Text="麥克風電平"/>
+                        <controls:LevelMeter Height="14"
+                                             RmsDb="{Binding MicOutMeter.RmsDb}"
+                                             PeakDb="{Binding MicOutMeter.PeakDb}"
+                                             HoldDb="{Binding MicOutMeter.HoldDb}"
+                                             IsClipping="{Binding MicOutMeter.IsClipping}"/>
+                    </StackPanel>
+
+                    <Grid ColumnDefinitions="86,*,62" RowDefinitions="Auto,Auto" RowSpacing="6">
+                        <TextBlock Grid.Row="0" Grid.Column="0" Classes="label" Text="麥克風音量"/>
+                        <Slider Grid.Row="0" Grid.Column="1" Minimum="-60" Maximum="12"
+                                Value="{Binding MicFaderDb}"/>
+                        <TextBlock Grid.Row="0" Grid.Column="2" Classes="value"
+                                   Text="{Binding MicFaderDb, StringFormat='{}{0:+0.0;-0.0;0.0}dB'}"/>
+
+                        <TextBlock Grid.Row="1" Grid.Column="0" Classes="label" Text="→ 虛擬麥"/>
+                        <Slider Grid.Row="1" Grid.Column="1" Minimum="-60" Maximum="12"
+                                Value="{Binding MicToVirtualDb}"/>
+                        <TextBlock Grid.Row="1" Grid.Column="2" Classes="value"
+                                   Text="{Binding MicToVirtualDb, StringFormat='{}{0:+0.0;-0.0;0.0}dB'}"/>
+                    </Grid>
+
+                    <TextBlock Classes="hint"
+                               Text="這一路會和影片音源在「虛擬麥克風」上合併,對方聽到的就是你的聲音加上歌。"/>
+                </StackPanel>
+            </Border>
+
+            <!-- ── ③ 兩路輸出 ────────────────────────────────────────── -->
+            <Border Grid.Column="2" Classes="card">
+                <StackPanel Spacing="10">
+                    <TextBlock Classes="heading" Text="兩路輸出"/>
+
+                    <StackPanel Spacing="4">
+                        <TextBlock Classes="label" Text="耳機(自己聽)"/>
+                        <ComboBox ItemsSource="{Binding OutputDevices}"
+                                  SelectedItem="{Binding HeadphoneDevice}"
+                                  DisplayMemberBinding="{Binding Display}"
+                                  HorizontalAlignment="Stretch"/>
+                        <controls:LevelMeter Height="14" Margin="0,4,0,0"
+                                             RmsDb="{Binding HeadphoneMeter.RmsDb}"
+                                             PeakDb="{Binding HeadphoneMeter.PeakDb}"
+                                             HoldDb="{Binding HeadphoneMeter.HoldDb}"
+                                             IsClipping="{Binding HeadphoneMeter.IsClipping}"/>
+                        <Grid ColumnDefinitions="*,62">
+                            <Slider Grid.Column="0" Minimum="-60" Maximum="12"
+                                    Value="{Binding MasterHeadphoneDb}"/>
+                            <TextBlock Grid.Column="1" Classes="value"
+                                       Text="{Binding MasterHeadphoneDb, StringFormat='{}{0:+0.0;-0.0;0.0}dB'}"/>
+                        </Grid>
+                    </StackPanel>
+
+                    <Separator Background="#2a2e36"/>
+
+                    <StackPanel Spacing="4">
+                        <TextBlock Classes="label" Text="虛擬麥克風(給 Discord)"/>
+                        <ComboBox ItemsSource="{Binding OutputDevices}"
+                                  SelectedItem="{Binding VirtualDevice}"
+                                  DisplayMemberBinding="{Binding Display}"
+                                  HorizontalAlignment="Stretch"/>
+                        <controls:LevelMeter Height="14" Margin="0,4,0,0"
+                                             RmsDb="{Binding VirtualMeter.RmsDb}"
+                                             PeakDb="{Binding VirtualMeter.PeakDb}"
+                                             HoldDb="{Binding VirtualMeter.HoldDb}"
+                                             IsClipping="{Binding VirtualMeter.IsClipping}"/>
+                        <Grid ColumnDefinitions="*,62">
+                            <Slider Grid.Column="0" Minimum="-60" Maximum="12"
+                                    Value="{Binding MasterVirtualDb}"/>
+                            <TextBlock Grid.Column="1" Classes="value"
+                                       Text="{Binding MasterVirtualDb, StringFormat='{}{0:+0.0;-0.0;0.0}dB'}"/>
+                        </Grid>
+                    </StackPanel>
+
+                    <Border Background="#3a1f1f" CornerRadius="6" Padding="10,6"
+                            IsVisible="{Binding !HasVirtualOutput}">
+                        <TextBlock Classes="hint" Foreground="#f0a0a0"
+                                   Text="沒有偵測到虛擬音效卡。設定方式見「其他設定」分頁。"/>
+                    </Border>
+
+                    <Separator Background="#2a2e36"/>
+
+                    <Button Classes="accent" HorizontalAlignment="Stretch"
+                            Command="{Binding ToggleAudioCommand}"
+                            Content="{Binding AudioButtonText}"/>
+
+                    <Grid ColumnDefinitions="*,*" ColumnSpacing="6">
+                        <Button Grid.Column="0" Content="重新掃描裝置"
+                                HorizontalAlignment="Stretch"
+                                Command="{Binding RefreshDevicesCommand}"/>
+                        <Button Grid.Column="1" Content="儲存設定"
+                                HorizontalAlignment="Stretch"
+                                Command="{Binding SaveSettingsCommand}"/>
+                    </Grid>
+
+                    <TextBlock Classes="hint"
+                               Text="若聽到破音,先把「總輸出」拉低,而不是把各路推桿拉高。"/>
+                </StackPanel>
+            </Border>
+        </Grid>
+    </ScrollViewer>
+</UserControl>

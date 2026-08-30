@@ -1,0 +1,115 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:KTISV.ViewModels"
+             xmlns:controls="using:KTISV.Controls"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             mc:Ignorable="d" d:DesignWidth="1280" d:DesignHeight="560"
+             x:Class="KTISV.Views.EqTab"
+             x:DataType="vm:MainWindowViewModel">
+
+    <UserControl.Styles>
+        <!-- 每根推桿底下的兩個小輸入框 -->
+        <Style Selector="controls|NumericTextBox.band">
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="Padding" Value="4,2"/>
+            <Setter Property="MinWidth" Value="0"/>
+            <Setter Property="MinHeight" Value="0"/>
+            <Setter Property="TextAlignment" Value="Center"/>
+            <Setter Property="HorizontalAlignment" Value="Stretch"/>
+        </Style>
+    </UserControl.Styles>
+
+    <UserControl.Resources>
+        <!-- 兩組 EQ 共用同一個版面 -->
+        <DataTemplate x:Key="EqTemplate" x:DataType="vm:EqViewModel">
+            <Border Classes="card">
+                <StackPanel Spacing="12">
+                    <Grid ColumnDefinitions="Auto,Auto,*,Auto,Auto,Auto,Auto" ColumnSpacing="8">
+                        <TextBlock Grid.Column="0" Classes="heading"
+                                   Text="{Binding Title}" VerticalAlignment="Center"/>
+                        <CheckBox Grid.Column="1" Content="啟用" Margin="12,0,0,0"
+                                  IsChecked="{Binding IsEnabled}"/>
+                        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8"
+                                    VerticalAlignment="Center">
+                            <Button Classes="tiny" Content="＋ 新增頻段"
+                                    Command="{Binding AddBandCommand}"
+                                    IsEnabled="{Binding CanAddBand}"/>
+                            <TextBlock Classes="label" Text="{Binding BandSummary}"/>
+                        </StackPanel>
+                        <Button Grid.Column="3" Content="人聲"
+                                Command="{Binding PresetVoiceCommand}"/>
+                        <Button Grid.Column="4" Content="電話"
+                                Command="{Binding PresetRadioCommand}"/>
+                        <Button Grid.Column="5" Content="微笑曲線"
+                                Command="{Binding PresetSmileCommand}"/>
+                        <Button Grid.Column="6" Content="歸零"
+                                Command="{Binding ResetCommand}"/>
+                    </Grid>
+
+                    <!--
+                        段數會變,所以用可捲動的橫向排列而不是 UniformGrid ——
+                        加到十幾段時每根推桿還是保有可用的寬度。
+                    -->
+                    <ScrollViewer HorizontalScrollBarVisibility="Auto"
+                                  VerticalScrollBarVisibility="Disabled">
+                        <ItemsControl ItemsSource="{Binding Bands}"
+                                      IsEnabled="{Binding IsEnabled}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <StackPanel Orientation="Horizontal" Spacing="4"/>
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="vm:EqBandViewModel">
+                                    <StackPanel Spacing="4" Width="86"
+                                                HorizontalAlignment="Center">
+                                        <TextBlock Classes="value" HorizontalAlignment="Center"
+                                                   Text="{Binding GainText}"/>
+                                        <Slider Orientation="Vertical" Height="170"
+                                                HorizontalAlignment="Center"
+                                                Minimum="-15" Maximum="15" TickFrequency="3"
+                                                Value="{Binding GainDb}"/>
+
+                                        <TextBlock Classes="label" HorizontalAlignment="Center"
+                                                   FontSize="11" Text="Hz"/>
+                                        <controls:NumericTextBox Classes="band"
+                                                ToolTip.Tip="中心頻率。可以打「1.5k」這種寫法。"
+                                                Text="{Binding FrequencyText,
+                                                       UpdateSourceTrigger=LostFocus}"/>
+
+                                        <TextBlock Classes="label" HorizontalAlignment="Center"
+                                                   FontSize="11" Text="Q"/>
+                                        <controls:NumericTextBox Classes="band"
+                                                ToolTip.Tip="{Binding ShapeTip}"
+                                                Text="{Binding QText,
+                                                       UpdateSourceTrigger=LostFocus}"/>
+
+                                        <Button Classes="tiny" Content="✕ 刪除"
+                                                HorizontalAlignment="Stretch"
+                                                HorizontalContentAlignment="Center"
+                                                IsEnabled="{Binding Owner.CanRemoveBand}"
+                                                Command="{Binding RemoveCommand}"/>
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                </StackPanel>
+            </Border>
+        </DataTemplate>
+    </UserControl.Resources>
+
+    <ScrollViewer>
+        <StackPanel Margin="14" Spacing="14">
+            <ContentControl Content="{Binding MusicEq}"
+                            ContentTemplate="{StaticResource EqTemplate}"/>
+            <ContentControl Content="{Binding MicEq}"
+                            ContentTemplate="{StaticResource EqTemplate}"/>
+            <TextBlock Classes="hint"
+                       Text="拖動推桿即時生效。影片 EQ 同時影響耳機與虛擬麥克風;麥克風 EQ 只影響你的聲音。"/>
+            <TextBlock Classes="hint"
+                       Text="頻率與 Q 打完按 Enter 或點到別處才會送出。最左與最右那兩段會自動變成 shelf(從轉折點起整片抬升或壓低),中間各段是 peaking(只動那一小塊);Q 在 peaking 上代表頻寬、在 shelf 上代表轉折斜率。預設集會依每一段目前的頻率重新取值,所以增刪頻段之後仍然套得準。"/>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

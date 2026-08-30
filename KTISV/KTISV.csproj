@@ -1,0 +1,53 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
+    <ApplicationIcon>Assets\ktisv.ico</ApplicationIcon>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Folder Include="Models\" />
+    <AvaloniaResource Include="Assets\**" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia" Version="12.0.2" />
+    <PackageReference Include="Avalonia.Desktop" Version="12.0.2" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="12.0.2" />
+    <PackageReference Include="Avalonia.Fonts.Inter" Version="12.0.2" />
+    <PackageReference Include="AvaloniaUI.DiagnosticsSupport" Version="2.2.1">
+      <IncludeAssets Condition="'$(Configuration)' != 'Debug'">None</IncludeAssets>
+      <PrivateAssets Condition="'$(Configuration)' != 'Debug'">All</PrivateAssets>
+    </PackageReference>
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.1" />
+  </ItemGroup>
+
+  <!--
+    發佈時把打包好的 Python 引擎(engine\dist\ktisv-engine\)一併帶進輸出的
+    engine-bin\ 底下,讓發佈產物是「一個 App」,目標電腦不需要裝 Python。
+    開發建置不做這件事:那時前端會直接找到 engine\dist\ 或原始碼。
+  -->
+  <Target Name="BundleEngine" AfterTargets="Publish">
+    <ItemGroup>
+      <EngineFiles Include="..\engine\dist\ktisv-engine\**\*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(EngineFiles)"
+          DestinationFiles="@(EngineFiles->'$(PublishDir)engine-bin\%(RecursiveDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true"
+          Condition="'@(EngineFiles)' != ''" />
+    <Message Importance="high"
+             Text="已將打包引擎複製到 $(PublishDir)engine-bin\"
+             Condition="'@(EngineFiles)' != ''" />
+    <Warning Text="找不到打包好的引擎(engine\dist\ktisv-engine)。請先在 engine 目錄執行 build.ps1,再重新發佈,否則產物仍需要 Python。"
+             Condition="'@(EngineFiles)' == ''" />
+
+    <!-- 第三方原生套件(Skia / HarfBuzz)會拖著上百 MB 的除錯符號,發佈版不需要 -->
+    <ItemGroup>
+      <PublishPdbs Include="$(PublishDir)*.pdb" />
+    </ItemGroup>
+    <Delete Files="@(PublishPdbs)" Condition="'@(PublishPdbs)' != ''" />
+  </Target>
+</Project>

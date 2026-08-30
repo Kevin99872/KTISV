@@ -1,0 +1,11 @@
+# Demucs 高品質離線分離 — 建議裝在獨立的 Python 3.12 虛擬環境
+# (PyTorch 目前對 Python 3.14 的 wheel 支援不完整)
+#
+#   py -3.12 -m venv .venv-demucs
+#   .venv-demucs\Scripts\python -m pip install -r requirements-demucs.txt
+#
+# 然後把 .venv-demucs\Scripts\python.exe 的路徑填進 UI 的「Demucs 直譯器」欄位,
+# 或設定環境變數 KTISV_DEMUCS_PYTHON。
+torch>=2.1
+torchaudio>=2.1
+demucs>=4.0.1

@@ -1,0 +1,64 @@
+[project]
+name = "ktisv-engine"
+version = "0.1.0"
+description = "KTISV 音訊引擎 —— 即時人聲分離與雙路輸出後端"
+# 不要指到 ../README.md:hatchling 規定 readme 必須在專案目錄內,指到外面
+# 會讓 `uv sync` 直接失敗。而 build.ps1 對 uv sync 失敗有退路(沿用現有
+# 環境),所以這個錯誤一直被吞掉 —— 表面上建置成功,實際上相依從來沒更新過。
+# 這個套件不會發佈到 PyPI,沒有 readme 欄位也無妨。
+# 上限卡在 3.14:PyTorch 目前還沒有完整的 cp314 wheel,
+# 釘在 3.12/3.13 才能把 Demucs 裝進同一個環境。
+requires-python = ">=3.10,<3.14"
+
+dependencies = [
+    "numpy>=1.26",
+    "scipy>=1.11",
+    "sounddevice>=0.4.6",
+    "yt-dlp>=2024.8.6",
+    "imageio-ffmpeg>=0.4.9",
+    # 離線分離(Demucs)。改成內建而非選配 —— 使用者不該為了分離人聲
+    # 還得自己另外架一個 Python 環境。
+    #
+    # 刻意用 **CPU 版** torch。PyPI 的 Windows wheel 就是 CPU-only,
+    # 104 MB(安裝後約 250 MB);CUDA 版是 2753 MB,會讓安裝檔從
+    # 95 MB 暴增到 2.8 GB。分離是離線工作而且結果有快取,慢一點可以接受。
+    # 要 GPU 加速的人仍可用 KTISV_DEMUCS_PYTHON 指向自己的 CUDA 環境
+    # (見 media/separator.py)。
+    "torch>=2.1",
+    "torchaudio>=2.1",
+    "demucs>=4.0.1",
+    # 自訓模型的推論。只要 ONNX Runtime,不需要 torch —— 38.7 MB,
+    # 相對 torch 的 454 MB 很便宜,而且以後若拿掉 demucs 也還留得住這條路。
+    "onnxruntime>=1.17",
+]
+
+[tool.uv.sources]
+# 明確釘在 CPU 索引。不寫的話,某些平台的預設會拉到帶 CUDA 的版本,
+# 打包產物會無聲地從 350 MB 變成 2.8 GB —— 這種事要在設定檔裡講死。
+torch = [{ index = "pytorch-cpu" }]
+torchaudio = [{ index = "pytorch-cpu" }]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[project.scripts]
+ktisv-engine = "ktisv_engine.__main__:main"
+
+[dependency-groups]
+# uv sync --group build
+build = [
+    "pyinstaller>=6.6",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["ktisv_engine"]
+
+[tool.uv]
+# 預設就把引擎本身裝成可編輯模式,改程式碼不用重裝
+package = true

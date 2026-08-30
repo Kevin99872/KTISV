@@ -1,0 +1,230 @@
+﻿<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:KTISV.ViewModels"
+             xmlns:models="using:KTISV.Models"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             mc:Ignorable="d" d:DesignWidth="1280" d:DesignHeight="520"
+             x:Class="KTISV.Views.YouTubeTab"
+             x:DataType="vm:MainWindowViewModel">
+
+    <!-- 三欄:搜尋 | 歌詞 | 歌單。中間的分隔線可拖動調整寬度。 -->
+    <Grid ColumnDefinitions="*,4,1.1*,4,340" Margin="14">
+
+        <!-- ── 搜尋 ────────────────────────────────────────────────── -->
+        <Border Grid.Column="0" Classes="card">
+            <DockPanel LastChildFill="True">
+
+                <StackPanel DockPanel.Dock="Top" Spacing="10">
+                    <TextBlock Classes="heading" Text="搜尋"/>
+
+                    <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+                        <TextBox Grid.Column="0" Text="{Binding SourceInput}"
+                                 PlaceholderText="輸入歌名關鍵字,或貼上 YouTube 網址 / 本機檔案路徑"
+                                 VerticalContentAlignment="Center">
+                            <TextBox.KeyBindings>
+                                <KeyBinding Gesture="Enter"
+                                            Command="{Binding LoadSourceCommand}"/>
+                            </TextBox.KeyBindings>
+                        </TextBox>
+                        <Button Grid.Column="1" Classes="accent" Content="搜尋 / 載入"
+                                Command="{Binding LoadSourceCommand}"
+                                IsEnabled="{Binding !IsBusy}"/>
+                        <Button Grid.Column="2" Content="瀏覽…"
+                                Command="{Binding BrowseCommand}"/>
+                    </Grid>
+
+                    <ProgressBar IsIndeterminate="True" Height="3"
+                                 IsVisible="{Binding IsSearching}"/>
+
+                    <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8"
+                          IsVisible="{Binding SearchHint,
+                              Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                        <TextBlock Grid.Column="0" Classes="hint"
+                                   VerticalAlignment="Center"
+                                   Text="{Binding SearchHint}"/>
+                        <Button Grid.Column="1" Classes="tiny" Content="全部加入歌單"
+                                Command="{Binding AddAllResultsCommand}"
+                                IsVisible="{Binding HasSearchResults}"/>
+                        <Button Grid.Column="2" Classes="tiny" Content="清除"
+                                Command="{Binding ClearSearchCommand}"
+                                IsVisible="{Binding HasSearchResults}"/>
+                    </Grid>
+                </StackPanel>
+
+                <Border Margin="0,10,0,0" Background="#12141a" CornerRadius="6"
+                        BorderBrush="#2a2e36" BorderThickness="1">
+                    <ListBox ItemsSource="{Binding SearchResults}"
+                             SelectedItem="{Binding SelectedResult}"
+                             Background="Transparent">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate x:DataType="models:SearchResult">
+                                <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="10">
+                                    <StackPanel Grid.Column="0" Spacing="2">
+                                        <TextBlock Text="{Binding Title}" FontSize="13"
+                                                   Foreground="#e8eef5"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Text="{Binding Subtitle}" FontSize="11"
+                                                   Foreground="#6b7482"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                    </StackPanel>
+                                    <TextBlock Grid.Column="1" Classes="value"
+                                               Text="{Binding DurationText}"/>
+                                    <Button Grid.Column="2" Classes="tiny" Content="＋ 歌單"
+                                            Command="{Binding $parent[ListBox].((vm:MainWindowViewModel)DataContext).AddToPlaylistCommand}"
+                                            CommandParameter="{Binding}"/>
+                                </Grid>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </Border>
+            </DockPanel>
+        </Border>
+
+        <GridSplitter Grid.Column="1" Background="Transparent" ResizeDirection="Columns"/>
+
+        <!-- ── 歌詞 ────────────────────────────────────────────────── -->
+        <Border Grid.Column="2" Classes="card">
+            <DockPanel LastChildFill="True">
+
+                <StackPanel DockPanel.Dock="Top" Spacing="8">
+                    <Grid ColumnDefinitions="Auto,*,Auto">
+                        <TextBlock Grid.Column="0" Classes="heading" Text="歌詞"/>
+                        <TextBlock Grid.Column="1" Classes="hint" Margin="10,0,0,0"
+                                   VerticalAlignment="Center"
+                                   Text="{Binding Lyrics.SourceLabel}"/>
+                        <Button Grid.Column="2" Classes="tiny" Content="重新尋找"
+                                Command="{Binding RefreshLyricsCommand}"/>
+                    </Grid>
+
+                    <!-- 字級調整 -->
+                    <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
+                        <TextBlock Grid.Column="0" Classes="label" Text="字級"/>
+                        <Slider Grid.Column="1" Minimum="12" Maximum="48"
+                                Value="{Binding Lyrics.FontSize}"/>
+                        <TextBlock Grid.Column="2" Classes="value" Width="34"
+                                   Text="{Binding Lyrics.FontSize, StringFormat='{}{0:0}'}"/>
+                    </Grid>
+
+                    <StackPanel Spacing="4" IsVisible="{Binding Lyrics.HasLanguages}">
+                        <TextBlock Classes="label" Text="字幕語言"/>
+                        <ComboBox ItemsSource="{Binding Lyrics.Languages}"
+                                  SelectedItem="{Binding Lyrics.SelectedLanguage}"
+                                  DisplayMemberBinding="{Binding Display}"
+                                  HorizontalAlignment="Stretch"/>
+                        <TextBlock Classes="hint"
+                                   Text="標「自動生成」的是 YouTube 機器聽打的,斷句與用字常有錯;上傳者自己提供的比較準。"/>
+                    </StackPanel>
+
+                    <CheckBox Content="自動捲動" IsChecked="{Binding Lyrics.AutoScroll}"/>
+
+                    <!-- 查找很快(本機檔或字幕),用不定進度條就夠了 -->
+                    <StackPanel Spacing="4" IsVisible="{Binding Lyrics.IsWorking}">
+                        <TextBlock Classes="hint" Text="{Binding Lyrics.Status}"/>
+                        <ProgressBar Height="3" IsIndeterminate="True"/>
+                    </StackPanel>
+
+                    <TextBlock Classes="hint" Text="{Binding Lyrics.Status}"
+                               IsVisible="{Binding !Lyrics.IsWorking}"/>
+                </StackPanel>
+
+                <Border Margin="0,10,0,0" Background="#12141a" CornerRadius="6"
+                        BorderBrush="#2a2e36" BorderThickness="1">
+                    <ListBox Name="LyricsList" ItemsSource="{Binding Lyrics.Lines}"
+                             Background="Transparent"
+                             ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate x:DataType="vm:LyricLineViewModel">
+                                <!-- Classes.current 綁 IsCurrent,讓下面的樣式規則
+                                     依「是不是正在唱的那一行」切換外觀 -->
+                                <TextBlock Text="{Binding Text}"
+                                           Classes.current="{Binding IsCurrent}"
+                                           TextWrapping="Wrap" Padding="2,3"
+                                           FontSize="{Binding $parent[ListBox].((vm:MainWindowViewModel)DataContext).Lyrics.FontSize}"/>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                        <ListBox.Styles>
+                            <Style Selector="ListBoxItem">
+                                <Setter Property="Padding" Value="8,1"/>
+                                <Setter Property="MinHeight" Value="0"/>
+                            </Style>
+                            <!-- 未唱到的行壓暗,讓目前這行自然凸顯 -->
+                            <Style Selector="TextBlock">
+                                <Setter Property="Foreground" Value="#6d7686"/>
+                            </Style>
+                            <Style Selector="TextBlock.current">
+                                <Setter Property="Foreground" Value="#8fd0ff"/>
+                                <Setter Property="FontWeight" Value="SemiBold"/>
+                            </Style>
+                        </ListBox.Styles>
+                    </ListBox>
+                </Border>
+            </DockPanel>
+        </Border>
+
+        <GridSplitter Grid.Column="3" Background="Transparent" ResizeDirection="Columns"/>
+
+        <!-- ── 歌單 ────────────────────────────────────────────────── -->
+        <Border Grid.Column="4" Classes="card">
+            <DockPanel LastChildFill="True">
+
+                <StackPanel DockPanel.Dock="Top" Spacing="8">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <TextBlock Grid.Column="0" Classes="heading" Text="歌單"/>
+                        <Button Grid.Column="1" Classes="tiny" Content="清空"
+                                Command="{Binding ClearPlaylistCommand}"
+                                IsVisible="{Binding HasPlaylist}"/>
+                    </Grid>
+
+                    <TextBlock Classes="hint" Text="{Binding PlaylistSummary}"/>
+
+                    <CheckBox Content="播完自動下一首" IsChecked="{Binding AutoAdvance}"/>
+
+                    <Grid ColumnDefinitions="*,*" ColumnSpacing="6"
+                          IsVisible="{Binding HasPlaylist}">
+                        <Button Grid.Column="0" Content="⏮ 上一首"
+                                HorizontalAlignment="Stretch"
+                                Command="{Binding PlayPreviousCommand}"/>
+                        <Button Grid.Column="1" Content="下一首 ⏭"
+                                HorizontalAlignment="Stretch"
+                                Command="{Binding PlayNextCommand}"/>
+                    </Grid>
+                </StackPanel>
+
+                <Border Margin="0,10,0,0" Background="#12141a" CornerRadius="6"
+                        BorderBrush="#2a2e36" BorderThickness="1">
+                    <ListBox ItemsSource="{Binding Playlist}" Background="Transparent">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate x:DataType="models:SearchResult">
+                                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6">
+                                    <StackPanel Grid.Column="0" Spacing="1">
+                                        <TextBlock Text="{Binding Title}" FontSize="12"
+                                                   Foreground="#e8eef5"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Text="{Binding DurationText}" FontSize="10"
+                                                   Foreground="#6b7482"/>
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="1" Orientation="Horizontal"
+                                                Spacing="2" VerticalAlignment="Center">
+                                        <Button Classes="tiny" Content="▶" ToolTip.Tip="播放"
+                                                Command="{Binding $parent[ListBox].((vm:MainWindowViewModel)DataContext).PlayItemCommand}"
+                                                CommandParameter="{Binding}"/>
+                                        <Button Classes="tiny" Content="↑" ToolTip.Tip="上移"
+                                                Command="{Binding $parent[ListBox].((vm:MainWindowViewModel)DataContext).MoveUpCommand}"
+                                                CommandParameter="{Binding}"/>
+                                        <Button Classes="tiny" Content="↓" ToolTip.Tip="下移"
+                                                Command="{Binding $parent[ListBox].((vm:MainWindowViewModel)DataContext).MoveDownCommand}"
+                                                CommandParameter="{Binding}"/>
+                                        <Button Classes="tiny" Content="✕" ToolTip.Tip="移除"
+                                                Command="{Binding $parent[ListBox].((vm:MainWindowViewModel)DataContext).RemoveFromPlaylistCommand}"
+                                                CommandParameter="{Binding}"/>
+                                    </StackPanel>
+                                </Grid>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </Border>
+            </DockPanel>
+        </Border>
+    </Grid>
+</UserControl>

@@ -1,0 +1,6 @@
+# KTISV 音訊引擎 — 核心相依套件
+numpy>=1.26
+scipy>=1.11
+sounddevice>=0.4.6
+yt-dlp>=2024.8.6
+imageio-ffmpeg>=0.4.9

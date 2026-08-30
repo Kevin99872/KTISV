@@ -1,0 +1,99 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:KTISV.ViewModels"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             mc:Ignorable="d" d:DesignWidth="900" d:DesignHeight="700"
+             x:Class="KTISV.Views.SetupWizard"
+             x:DataType="vm:MainWindowViewModel"
+             IsVisible="{Binding ShowSetupWizard}">
+
+    <Border Background="#cc000000">
+        <Border Background="#1c1f25" BorderBrush="#2a2e36" BorderThickness="1"
+                CornerRadius="10" Padding="24" Width="620"
+                HorizontalAlignment="Center" VerticalAlignment="Center">
+            <ScrollViewer MaxHeight="620">
+                <StackPanel Spacing="14">
+
+                    <TextBlock Text="設定虛擬麥克風" FontSize="19" FontWeight="SemiBold"
+                               Foreground="#e8eef5"/>
+
+                    <TextBlock Classes="hint" FontSize="12.5"
+                               Text="KTISV 現在就能用 —— 耳機那一路完全正常。但要把混音送進 Discord,需要一個「虛擬麥克風」。"/>
+
+                    <Border Classes="panel" Padding="12">
+                        <StackPanel Spacing="6">
+                            <TextBlock Classes="label" Foreground="#c8d2de"
+                                       Text="為什麼需要安裝東西?"/>
+                            <TextBlock Classes="hint"
+                                       Text="Windows 上「其他程式能選的麥克風」是由驅動程式提供的。任何應用程式都沒辦法在執行時自己生出一個讓 Discord 看得到的錄音裝置 —— 所以每個方案(VB-CABLE、VoiceMeeter、VAC)都附帶一個驅動。"/>
+                        </StackPanel>
+                    </Border>
+
+                    <Border Background="#1a2430" BorderBrush="#2f7de1" BorderThickness="1"
+                            CornerRadius="6" Padding="12">
+                        <StackPanel Spacing="8">
+                            <TextBlock Text="建議做法:安裝 VB-CABLE" FontSize="13"
+                                       FontWeight="SemiBold" Foreground="#7db4f0"/>
+                            <TextBlock Classes="hint"
+                                       Text="個人使用免費、正式簽章、最不容易出問題。安裝後重開機,回來按「重新偵測」即可。"/>
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <Button Content="開啟下載頁"
+                                        Command="{Binding OpenUrlCommand}"
+                                        CommandParameter="https://vb-audio.com/Cable/"/>
+                                <Button Content="我裝好了,重新偵測"
+                                        Command="{Binding RecheckDevicesCommand}"/>
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+
+                    <Border Classes="panel" Padding="12">
+                        <StackPanel Spacing="8">
+                            <TextBlock Text="進階:內建的開源驅動(Virtual Audio Driver)"
+                                       FontSize="13" FontWeight="SemiBold" Foreground="#c8d2de"/>
+                            <TextBlock Classes="hint"
+                                       Text="MIT 授權、可自由散布。但它的憑證不是 Microsoft 核心驅動認證,在開啟 Secure Boot 的系統(尤其 Windows 11 24H2)上可能裝了卻無法啟動。"/>
+
+                            <Button Content="安裝內建驅動(需要系統管理員權限)"
+                                    HorizontalAlignment="Left"
+                                    IsVisible="{Binding CanInstallBundledDriver}"
+                                    Command="{Binding InstallDriverCommand}"
+                                    IsEnabled="{Binding !IsInstallingDriver}"/>
+
+                            <TextBlock Classes="hint" Foreground="#8d97a5"
+                                       IsVisible="{Binding !CanInstallBundledDriver}"
+                                       Text="driver 資料夾裡還沒有驅動檔。請依該資料夾的 README.md 下載後放入,再重新開啟這個精靈。"/>
+                            <Button Content="開啟專案頁面" HorizontalAlignment="Left"
+                                    IsVisible="{Binding !CanInstallBundledDriver}"
+                                    Command="{Binding OpenUrlCommand}"
+                                    CommandParameter="https://github.com/VirtualDrivers/Virtual-Audio-Driver/releases"/>
+                        </StackPanel>
+                    </Border>
+
+                    <ProgressBar IsIndeterminate="True" Height="3"
+                                 IsVisible="{Binding IsInstallingDriver}"/>
+
+                    <Border Classes="panel" Padding="10,8"
+                            IsVisible="{Binding SetupMessage,
+                                Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                        <StackPanel Spacing="8">
+                            <TextBlock Classes="hint" Text="{Binding SetupMessage}"/>
+                            <Button Content="改用測試簽章模式重試(會降低系統安全性)"
+                                    HorizontalAlignment="Left"
+                                    IsVisible="{Binding OfferTestSigning}"
+                                    Command="{Binding InstallDriverTestSigningCommand}"
+                                    IsEnabled="{Binding !IsInstallingDriver}"/>
+                        </StackPanel>
+                    </Border>
+
+                    <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,4,0,0">
+                        <Button Grid.Column="0" Content="先略過"
+                                Command="{Binding SkipSetupCommand}"/>
+                        <Button Grid.Column="2" Classes="accent" Content="關閉"
+                                Command="{Binding CloseSetupWizardCommand}"/>
+                    </Grid>
+                </StackPanel>
+            </ScrollViewer>
+        </Border>
+    </Border>
+</UserControl>
