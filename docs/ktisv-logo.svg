@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-label="KTISV">
+  <title>KTISV</title>
+  <!--
+    KTISV 圖示的可縮放版本,依 KTISV/Assets/ktisv.ico(16x16)重畫。
+    五根電平柱:左紅=麥克風,右青=送進虛擬音效卡的那一路,中間白/淡紫=混音本身。
+    左右對稱,因為兩路輸出拿到的是同一份混音。
+  -->
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#5331D0"/>
+      <stop offset="1" stop-color="#7C3AED"/>
+    </linearGradient>
+  </defs>
+  <rect width="256" height="256" rx="52" ry="52" fill="url(#tile)"/>
+  <g>
+    <rect x="46"  y="96" width="20" height="64"  rx="10" fill="#F4557E"/>
+    <rect x="82"  y="80" width="20" height="96"  rx="10" fill="#FFFFFF"/>
+    <rect x="118" y="64" width="20" height="128" rx="10" fill="#DCCFF9"/>
+    <rect x="154" y="80" width="20" height="96"  rx="10" fill="#FFFFFF"/>
+    <rect x="190" y="96" width="20" height="64"  rx="10" fill="#22C7EE"/>
+  </g>
+</svg>
