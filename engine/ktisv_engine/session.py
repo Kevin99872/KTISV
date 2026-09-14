@@ -47,7 +47,13 @@ class Session:
         self.demucs_device = "auto"
         self.demucs_shifts = 0
         self.demucs_overlap = 0.25
-        self.custom_model = ""          # 空字串 = 用找到的第一個
+        self.custom_model = ""          # 空字串 = 用最新的那個
+        # 自訓模型之後的殘留人聲抑制強度(0–1)。預設關閉:只留樂器版的模型
+        # 本身殘留已經很低(5 首未見歌曲實測 SIR 33.9 dB),後處理在低強度時
+        # 伴奏掉的比殘留少的多(25% → 伴奏 −1.3 dB、殘留幾乎不變),
+        # 要拉到 50% 以上才換得到明顯更乾淨(SIR 39.9 dB,伴奏 −2.2 dB)。
+        # 所以留給「還聽得到人聲」的人自己往上調。
+        self.custom_suppression = 0.0
         self.download_options = youtube.DownloadOptions()
 
         self.media: youtube.MediaInfo | None = None
@@ -393,7 +399,9 @@ class Session:
     def _eq_state(self, target: str) -> dict:
         eq = self._eq(target)
         return {"target": target, "enabled": eq.enabled,
-                "gains": eq.gains, "bands": eq.band_info()}
+                "gains": eq.gains, "bands": eq.band_info(),
+                "auto_headroom": eq.auto_headroom,
+                "headroom_db": round(eq.headroom_db, 2)}
 
     def cmd_eq_set_band(self, args: dict) -> dict:
         """改單一頻段。gain / freq / q 都是選填,沒帶的就不動。"""
@@ -436,10 +444,16 @@ class Session:
 
     def cmd_eq_enable(self, args: dict) -> dict:
         eq = self._eq(args["target"])
+        # 不清濾波器狀態:EQ 自己會把增益平滑地收回 0 再旁通,
+        # 在這裡清狀態反而會在停用的瞬間爆一聲。
         eq.enabled = bool(args["enabled"])
-        if not eq.enabled:
-            eq.clear_state()
         return {"target": args["target"], "enabled": eq.enabled}
+
+    def cmd_eq_set_headroom(self, args: dict) -> dict:
+        """自動防削波:依 EQ 曲線的最高點把整體壓低同樣的量。"""
+        eq = self._eq(args["target"])
+        eq.auto_headroom = bool(args["enabled"])
+        return self._eq_state(args["target"])
 
     def cmd_eq_reset(self, args: dict) -> dict:
         eq = self._eq(args["target"])
@@ -451,7 +465,8 @@ class Session:
         freqs = np.logspace(np.log10(20.0), np.log10(20000.0),
                             int(args.get("points", 96)))
         return {"freqs": [round(f, 2) for f in freqs.tolist()],
-                "db": [round(v, 3) for v in eq.response(freqs).tolist()]}
+                "db": [round(v, 3) for v in eq.response(freqs).tolist()],
+                "headroom_db": round(eq.headroom_db, 2)}
 
     def cmd_eq_info(self, args: dict) -> dict:
         return {
@@ -694,13 +709,14 @@ class Session:
                 raise RuntimeError(
                     "沒有可用的自訓模型。把訓練匯出的 .onnx 放進 "
                     f"{onnx_mod.models_dir()} 就會出現在選單裡。")
-            model = found[0]["path"]
+            model = found[0]["path"]      # list_models 已依修改時間排好,最新的在前
 
         self._progress("自訓模型分離中", 0.5)
         stems = onnx_mod.separate(
             info.path,
             model_path=model,
             samplerate=SAMPLE_RATE,
+            suppression=self.custom_suppression,
             progress=lambda stage, v: self._progress(stage, 0.5 + v * 0.45),
             cancel=self._cancel.is_set,
         )
@@ -712,7 +728,14 @@ class Session:
         return {"available": ok, "reason": why,
                 "dir": onnx_mod.models_dir(),
                 "models": onnx_mod.list_models(),
-                "selected": self.custom_model}
+                "selected": self.custom_model,
+                "suppression": self.custom_suppression}
+
+    def cmd_set_custom_params(self, args: dict) -> dict:
+        """自訓模型的後處理參數。改了之後已載入的歌要重新載入才會反映。"""
+        if args.get("suppression") is not None:
+            self.custom_suppression = max(0.0, min(1.0, float(args["suppression"])))
+        return {"suppression": self.custom_suppression}
 
     def cmd_set_custom_model(self, args: dict) -> dict:
         path = (args.get("path") or "").strip()

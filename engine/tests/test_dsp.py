@@ -173,6 +173,87 @@ def test_eq_bands() -> None:
         check("不能把頻段刪光", True)
 
 
+def test_eq_smoothing() -> None:
+    print("等化器 —— 參數平滑與防削波")
+
+    def stream(eq: GraphicEQ, signal: np.ndarray, blocks: int,
+               events: dict) -> np.ndarray:
+        out = []
+        for i in range(blocks):
+            if i in events:
+                events[i](eq)
+            out.append(eq.process(signal[i * BLOCK_SIZE:(i + 1) * BLOCK_SIZE].copy()))
+        return np.concatenate(out)[:, 0]
+
+    # 125 Hz 的低音加上 +15 dB 的同頻 peaking —— 係數瞬間跳變時爆音最明顯的組合。
+    blocks = 400
+    t = np.arange(BLOCK_SIZE * blocks) / SAMPLE_RATE
+    bass = (0.05 * np.sin(2 * np.pi * 125 * t)).astype(np.float32).reshape(-1, 1)
+
+    eq = GraphicEQ(SAMPLE_RATE, 1)
+    low = list(eq.bands).index(125.0)
+    out = stream(eq, bass, blocks, {100: lambda e: e.set_gain(low, 15.0)})
+    # 二階差分:平滑的正弦波很小,係數跳變造成的轉折會很突出
+    jerk = np.abs(np.diff(out, 2))
+    seam = float(np.max(jerk[99 * BLOCK_SIZE:110 * BLOCK_SIZE]))
+    steady = float(np.max(jerk[300 * BLOCK_SIZE:]))
+    check("推桿跳 15 dB 不產生拉鍊雜音", seam < steady * 1.2,
+          f"切換處 {seam:.2e} vs 穩態 {steady:.2e}")
+    settled = db(out[300 * BLOCK_SIZE:]) - db(bass[300 * BLOCK_SIZE:, 0])
+    check("平滑之後仍然到達目標增益", 12.0 < settled < 16.0, f"{settled:+.1f} dB")
+
+    # 停用 / 重新啟用:以前停用時會清狀態,那一下就是爆音
+    eq2 = GraphicEQ(SAMPLE_RATE, 1)
+    eq2.set_gain(list(eq2.bands).index(125.0), 12.0)
+    eq2.snap()
+    out = stream(eq2, bass, blocks, {
+        100: lambda e: setattr(e, "enabled", False),
+        250: lambda e: setattr(e, "enabled", True),
+    })
+    jerk = np.abs(np.diff(out, 2))
+    worst = max(float(np.max(jerk[99 * BLOCK_SIZE:120 * BLOCK_SIZE])),
+                float(np.max(jerk[249 * BLOCK_SIZE:270 * BLOCK_SIZE])))
+    reference = float(np.max(np.abs(np.diff(bass[:, 0], 2)))) * 10 ** (12 / 20)
+    # 25 ms 的淡入淡出本身就會讓二階差分略微變大(振幅在變),實測約 2 倍;
+    # 瞬間清狀態的舊做法是上千倍。門檻放在兩者之間很遠的地方。
+    check("停用與重新啟用都不爆音", worst < reference * 4.0,
+          f"最差 {worst:.2e} vs 參考 {reference:.2e}")
+    tail = out[200 * BLOCK_SIZE:249 * BLOCK_SIZE]
+    check("停用收斂後逐點旁通",
+          np.allclose(tail, bass[200 * BLOCK_SIZE:249 * BLOCK_SIZE, 0], atol=1e-6))
+
+    # 自動防削波:+6 dB 的推升,輸出峰值不能比輸入高
+    t = np.arange(SAMPLE_RATE) / SAMPLE_RATE
+    loud = (0.9 * np.sin(2 * np.pi * 1000 * t)).astype(np.float32).reshape(-1, 1)
+    guard = GraphicEQ(SAMPLE_RATE, 1, auto_headroom=True)
+    guard.set_gain(list(guard.bands).index(1000.0), 6.0)
+    y = guard.process(loud.copy())
+    peak = float(np.max(np.abs(y[SAMPLE_RATE // 2:])))
+    check("防削波時推升不會讓峰值變高", peak <= 0.9 * 1.02,
+          f"峰值 {peak:.3f}(輸入 0.900),壓低 {guard.headroom_db:.1f} dB")
+    check("防削波反映在響應曲線上",
+          abs(float(guard.response(np.array([1000.0]))[0])) < 0.5)
+
+    free = GraphicEQ(SAMPLE_RATE, 1)
+    free.set_gain(list(free.bands).index(1000.0), 6.0)
+    y = free.process(loud.copy())
+    check("關閉防削波時照舊推升", float(np.max(np.abs(y[SAMPLE_RATE // 2:]))) > 1.5)
+
+    # 平滑的成本只在變動期間付:收斂之後一個 block 應該只做一次濾波
+    import time
+    busy = GraphicEQ(SAMPLE_RATE, 2)
+    busy.set_gains([3.0] * busy.band_count)
+    busy.snap()
+    block = np.zeros((BLOCK_SIZE, 2), dtype=np.float32)
+    started = time.perf_counter()
+    for _ in range(500):
+        busy.process(block)
+    per_block = (time.perf_counter() - started) / 500
+    budget = BLOCK_SIZE / SAMPLE_RATE
+    check("收斂後 EQ 的 CPU 成本很低", per_block < budget * 0.1,
+          f"{per_block * 1e6:.0f} µs / block(預算 {budget * 1e6:.0f} µs)")
+
+
 def test_pitch() -> None:
     print("變調(升 key / 降 key)")
     from ktisv_engine.dsp.pitch import PitchShifter
@@ -1222,13 +1303,48 @@ def test_drift() -> None:
           f"{(corrector.ratio - 1.0) * 1e6:+.1f} ppm")
 
 
+def test_vocal_leak_suppression() -> None:
+    print("自訓模型 —— 殘留人聲抑制")
+    from ktisv_engine.media.onnx_separator import suppress_vocal_leak
+
+    sr = 44100
+    n = sr * 65                           # 超過一塊(30 秒),順便驗接縫
+    t = np.arange(n) / sr
+    rng = np.random.default_rng(0)
+    vocal = (0.3 * np.sin(2 * np.pi * 440 * t)
+             * (1 + np.sin(2 * np.pi * 0.5 * t)) / 2)[:, None].repeat(2, 1)
+    vocal = vocal.astype(np.float32)
+    backing = (0.1 * rng.standard_normal((n, 2))).astype(np.float32)
+    mix = vocal + backing
+    estimate = 0.8 * vocal                 # 模型只抓到八成,兩成漏進伴奏
+
+    def leak(acc: np.ndarray) -> float:
+        return float(np.sum(acc * vocal) / np.sum(vocal * vocal))
+
+    raw = suppress_vocal_leak(mix, estimate, 0.0)
+    check("強度 0 等於原本的「混音 − 人聲」",
+          np.allclose(raw, mix - estimate, atol=1e-6))
+    cleaned = suppress_vocal_leak(mix, estimate, 0.5)
+    check("殘留人聲被壓下去", leak(cleaned) < leak(raw) * 0.3,
+          f"殘留 {leak(raw):.3f} → {leak(cleaned):.3f}")
+    error_raw = float(np.sqrt(np.mean((raw - backing) ** 2)))
+    error_clean = float(np.sqrt(np.mean((cleaned - backing) ** 2)))
+    check("伴奏整體更接近真值", error_clean < error_raw * 0.5,
+          f"誤差 {error_raw:.4f} → {error_clean:.4f}")
+    # 分塊處理的接縫:30 秒處的誤差不能比其他地方明顯大
+    seam = slice(sr * 30 - 4096, sr * 30 + 4096)
+    local = float(np.sqrt(np.mean((cleaned[seam] - backing[seam]) ** 2)))
+    check("分塊接縫沒有額外誤差", local < error_clean * 1.5,
+          f"接縫 {local:.4f} vs 整體 {error_clean:.4f}")
+
+
 def main() -> int:
-    for fn in (test_ring, test_smooth_gain, test_eq, test_eq_bands, test_pitch,
+    for fn in (test_ring, test_smooth_gain, test_eq, test_eq_bands, test_eq_smoothing, test_pitch,
                test_echo, test_separation, test_delay, test_vc_sync,
                test_monitor_send, test_denoise, test_limiter, test_drift,
                test_calibration,
                test_calibration_in_engine, test_engine_mix,
-               test_engine_pitch):
+               test_engine_pitch, test_vocal_leak_suppression):
         fn()
         print()
     if FAILURES:

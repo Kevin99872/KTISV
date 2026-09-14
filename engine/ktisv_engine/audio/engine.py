@@ -133,7 +133,10 @@ class AudioEngine:
         self._calibration_voiced = False
         # 升 key / 降 key。0 半音時整條旁通,不花 CPU 也不加延遲。
         self.music_pitch = PitchShifter(samplerate, 2)
-        self.music_eq = GraphicEQ(samplerate, 2)
+        # 音樂 EQ 預設開啟自動防削波:YouTube 音源本來就壓得接近滿格,
+        # EQ 往上推的那幾 dB 會直接變成削波。麥克風那一路有推桿與限幅,
+        # 而且使用者通常會刻意把人聲推亮,維持原本的行為。
+        self.music_eq = GraphicEQ(samplerate, 2, auto_headroom=True)
         # 麥克風底噪處理(電源哼聲 + 嘶聲)。預設關閉,零延遲。
         # 位置在 EQ 之前:先把哼聲切掉,EQ 才不會又把它推回來。
         self.mic_denoise = MicDenoiser(samplerate, 1)

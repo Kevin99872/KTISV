@@ -73,7 +73,7 @@
                             </StackPanel>
 
                             <!-- Demucs 模式的設定 -->
-                            <StackPanel Spacing="6" IsVisible="{Binding !IsRealtimeSeparation}">
+                            <StackPanel Spacing="6" IsVisible="{Binding IsDemucsSeparation}">
                                 <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
                                     <TextBlock Grid.Column="0" Classes="label"
                                                Text="{Binding DemucsStatus}" TextWrapping="Wrap"/>
@@ -97,6 +97,28 @@
                                 </Grid>
                                 <TextBlock Classes="hint"
                                            Text="位移平均能小幅提升品質,但處理時間成正比增加。重疊越高接縫越平滑。"/>
+                            </StackPanel>
+
+                            <!-- 自訓模型的設定 -->
+                            <StackPanel Spacing="6" IsVisible="{Binding IsCustomSeparation}">
+                                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                                    <TextBlock Grid.Column="0" Classes="label"
+                                               Text="{Binding CustomModelStatus}" TextWrapping="Wrap"/>
+                                    <Button Grid.Column="1" Classes="tiny" Content="重新整理"
+                                            Command="{Binding RefreshCustomModelsCommand}"/>
+                                </Grid>
+                                <ComboBox ItemsSource="{Binding CustomModels}"
+                                          SelectedIndex="{Binding CustomModelIndex}"
+                                          HorizontalAlignment="Stretch"/>
+                                <Grid ColumnDefinitions="72,*,58">
+                                    <TextBlock Grid.Column="0" Classes="label" Text="人聲抑制"/>
+                                    <Slider Grid.Column="1" Minimum="0" Maximum="100"
+                                            Value="{Binding CustomSuppression}"/>
+                                    <TextBlock Grid.Column="2" Classes="value"
+                                               Text="{Binding CustomSuppression, StringFormat='{}{0:0}%'}"/>
+                                </Grid>
+                                <TextBlock Classes="hint" TextWrapping="Wrap"
+                                           Text="配合「剝離人聲」使用。預設 0% 就很乾淨;還聽得到一點歌聲時再往上拉(建議 50% 以上才有明顯差別),代價是和人聲同頻段的樂器會變薄。調整後要重新載入歌曲才會套用。"/>
                             </StackPanel>
                         </StackPanel>
                     </Border>

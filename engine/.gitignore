@@ -10,3 +10,6 @@ dist/
 # Python
 __pycache__/
 *.pyc
+
+# 內建模型(55 MB 級的二進位檔,不進版本庫;build.ps1 從這裡帶進發佈產物)
+models/*.onnx

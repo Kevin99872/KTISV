@@ -18,6 +18,8 @@ checkpoints/
 
 # 環境與快取
 .venv/
+# TensorFlow 用的 Python 3.10 環境,見 TENSORFLOW.md
+.venv-tf/
 __pycache__/
 *.pyc
 runs/

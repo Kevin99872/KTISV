@@ -16,15 +16,34 @@
 直接首尾相接會聽到規律的「咔、咔」。做法是讓相鄰塊重疊一半,各自乘上
 升降斜坡再相加 —— 接縫被斜坡抹平,而且兩塊的權重恆為 1,不會有音量起伏。
 
+殘留人聲抑制
+------------
+模型輸出的伴奏 = 混音 − 模型估的人聲。模型沒抓到的那一點人聲就原封不動
+留在伴奏裡 —— 聽起來是伴奏背後飄著一層很淡的歌聲。
+
+``suppression`` 在模型之後多做一道頻譜後處理:把模型給的兩軌當成先驗,
+逐個時頻格算一個偏向伴奏的 Wiener 遮罩
+
+    遮罩 = |伴奏|² / (|伴奏|² + β·|人聲|²)
+
+β = 1 就是標準 Wiener 濾波;β 越大,只要那一格裡模型認為「有一點人聲」,
+就把它從伴奏裡拿掉。拿掉的部分歸人聲軌,所以兩軌相加仍然精確還原原曲。
+代價是和人聲同頻同時的樂器會跟著變薄,所以做成可調的強度而不是寫死。
+
 模型放哪
 --------
-``%LOCALAPPDATA%\\KTISV\\models\\*.onnx``。訓練完把檔案丟進去就會出現在
-選單裡,不需要重新打包。
+兩個地方,都會出現在選單裡:
+
+* ``%LOCALAPPDATA%\\KTISV\\models\\*.onnx`` —— 使用者自己放的。訓練完把檔案
+  丟進去就好,不需要重新打包。同名時以這裡的為準。
+* 內建模型 —— 打包版在 ``ktisv-engine.exe`` 旁的 ``models\\``,原始碼樹在
+  ``engine/models/``。``build.ps1`` 會把後者複製成前者。
 """
 
 from __future__ import annotations
 
 import os
+import sys
 from typing import Callable
 
 import numpy as np
@@ -44,23 +63,36 @@ def models_dir() -> str:
     return path
 
 
+def bundled_models_dir() -> str:
+    """跟著程式一起發佈的模型。打包版在 exe 旁邊,原始碼樹在 engine/models。"""
+    if getattr(sys, "frozen", False):
+        return os.path.join(os.path.dirname(sys.executable), "models")
+    return os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
+        os.path.abspath(__file__)))), "models")
+
+
 def list_models() -> list[dict]:
-    """列出可用的自訓模型。"""
-    out: list[dict] = []
-    try:
-        names = sorted(os.listdir(models_dir()))
-    except OSError:
-        return out
-    for name in names:
-        if not name.lower().endswith(".onnx"):
-            continue
-        full = os.path.join(models_dir(), name)
+    """列出可用的自訓模型。最新的排最前面 —— 沒指定時用的就是剛訓練好的那個。"""
+    found: dict[str, dict] = {}
+    # 內建的先放、使用者資料夾後放:同名時使用者自己放的覆蓋內建的
+    for folder, bundled in ((bundled_models_dir(), True), (models_dir(), False)):
         try:
-            size = os.path.getsize(full)
+            names = sorted(os.listdir(folder))
         except OSError:
             continue
-        out.append({"name": os.path.splitext(name)[0], "path": full, "bytes": size})
-    return out
+        for name in names:
+            if not name.lower().endswith(".onnx"):
+                continue
+            full = os.path.join(folder, name)
+            try:
+                size = os.path.getsize(full)
+                mtime = os.path.getmtime(full)
+            except OSError:
+                continue
+            stem = os.path.splitext(name)[0]
+            found[stem.lower()] = {"name": stem, "path": full, "bytes": size,
+                                   "mtime": mtime, "bundled": bundled}
+    return sorted(found.values(), key=lambda m: m["mtime"], reverse=True)
 
 
 def available() -> tuple[bool, str]:
@@ -103,6 +135,7 @@ def _segment_length(session) -> int:
 def separate(path: str,
              model_path: str,
              samplerate: int = 48000,
+             suppression: float = 0.0,
              progress: Callable[[str, float], None] | None = None,
              cancel: Callable[[], bool] | None = None) -> Stems:
     """用自訓的 ONNX 模型分離。回傳跟 Demucs 那條路相同的 Stems。"""
@@ -125,7 +158,7 @@ def separate(path: str,
         progress("解碼音訊", 0.05)
     # 模型是用某個取樣率訓練的,而 export.py 預設 44100。先照模型的取樣率
     # 推論,最後再轉成引擎要的取樣率 —— 不能拿 48k 的資料餵給 44.1k 訓的模型。
-    model_sr = 44100
+    model_sr = _model_samplerate(session)
     audio = ffmpeg.decode_to_array(path, model_sr, channels)   # (n, ch)
     total = len(audio)
     if total == 0:
@@ -187,9 +220,15 @@ def separate(path: str,
     vocals = (acc_v[:total] / weight[:total]).astype(np.float32)
     instrumental = (acc_i[:total] / weight[:total]).astype(np.float32)
 
+    if suppression > 0:
+        if progress:
+            progress("抑制殘留人聲", 0.91)
+        instrumental = suppress_vocal_leak(audio, vocals, suppression, cancel)
+        vocals = (audio - instrumental).astype(np.float32)
+
     if samplerate != model_sr:
         if progress:
-            progress("重取樣", 0.93)
+            progress("重取樣", 0.95)
         vocals = _resample(vocals, model_sr, samplerate)
         instrumental = _resample(instrumental, model_sr, samplerate)
 
@@ -198,6 +237,94 @@ def separate(path: str,
     n = min(len(vocals), len(instrumental))
     return Stems(vocals=vocals[:n], instrumental=instrumental[:n],
                  samplerate=samplerate, source=path)
+
+
+def _model_samplerate(session) -> int:
+    """ONNX metadata 裡的 samplerate;舊檔沒寫就當 44100(export.py 的預設)。"""
+    try:
+        meta = session.get_modelmeta().custom_metadata_map
+        return int(meta.get("samplerate", 44100))
+    except Exception:
+        return 44100
+
+
+_POST_NFFT = 2048
+_POST_HOP = 512
+_POST_BLOCK_SECONDS = 30.0
+_POST_FLOOR = 0.03
+"""遮罩下限(約 −30 dB)。完全歸零的格子在 iSTFT 之後會變成「音樂噪聲」
+那種零碎的叮叮聲,留一點底比挖成真空好聽。"""
+
+
+def suppression_beta(strength: float) -> float:
+    """強度 0–1 → Wiener 遮罩的 β。1 → 約 +18 dB 的偏向。"""
+    strength = min(1.0, max(0.0, float(strength)))
+    return 10.0 ** (1.8 * strength)
+
+
+def suppress_vocal_leak(mixture: np.ndarray, vocals: np.ndarray,
+                        strength: float,
+                        cancel: Callable[[], bool] | None = None,
+                        samplerate: int = 44100) -> np.ndarray:
+    """回傳清掉殘留人聲的伴奏,(n, ch) float32。
+
+    分成 30 秒一塊處理再交叉淡接:一首五分鐘的歌一次做 STFT 要好幾百 MB 的
+    複數陣列,而遮罩是逐格的局部運算,分塊不會改變結果(只有淡接區是兩塊
+    的平均,兩者本來就幾乎相同)。
+    """
+    from scipy.signal import stft, istft
+
+    if strength <= 0:
+        return (mixture - vocals).astype(np.float32)
+    beta = suppression_beta(strength)
+    total, channels = mixture.shape
+    block = int(_POST_BLOCK_SECONDS * samplerate)
+    fade = _POST_NFFT * 4
+    out = np.zeros((total, channels), dtype=np.float32)
+    weight = np.zeros((total, 1), dtype=np.float32)
+    window = "hann"
+
+    start = 0
+    while start < total:
+        if cancel and cancel():
+            raise OnnxSeparatorError("已取消分離。")
+        stop = min(total, start + block + fade)
+        mix_block = mixture[start:stop]
+        voc_block = vocals[start:stop]
+        n = stop - start
+        cleaned = np.empty((n, channels), dtype=np.float32)
+        for ch in range(channels):
+            _, _, mix_spec = stft(mix_block[:, ch], nperseg=_POST_NFFT,
+                                  noverlap=_POST_NFFT - _POST_HOP, window=window)
+            _, _, voc_spec = stft(voc_block[:, ch], nperseg=_POST_NFFT,
+                                  noverlap=_POST_NFFT - _POST_HOP, window=window)
+            acc_power = np.abs(mix_spec - voc_spec) ** 2
+            voc_power = np.abs(voc_spec) ** 2
+            mask = acc_power / (acc_power + beta * voc_power + 1e-10)
+            np.maximum(mask, _POST_FLOOR, out=mask)
+            _, rebuilt = istft(mix_spec * mask, nperseg=_POST_NFFT,
+                               noverlap=_POST_NFFT - _POST_HOP, window=window)
+            take = min(n, len(rebuilt))
+            cleaned[:take, ch] = rebuilt[:take]
+            if take < n:
+                cleaned[take:, ch] = 0.0
+
+        # 兩端淡接權重:相鄰兩塊在重疊區的權重相加恆為 1
+        w = np.ones((n, 1), dtype=np.float32)
+        if start > 0:
+            ramp = min(fade, n)
+            w[:ramp, 0] = np.linspace(0.0, 1.0, ramp, endpoint=False)
+        if stop < total:
+            ramp = min(fade, n)
+            w[n - ramp:, 0] *= np.linspace(1.0, 0.0, ramp, endpoint=False)
+        out[start:stop] += cleaned * w
+        weight[start:stop] += w
+        if stop >= total:
+            break
+        start = stop - fade
+
+    np.maximum(weight, 1e-6, out=weight)
+    return (out / weight).astype(np.float32)
 
 
 def _resample(x: np.ndarray, src_sr: int, dst_sr: int) -> np.ndarray:

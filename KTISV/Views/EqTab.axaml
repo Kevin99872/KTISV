@@ -32,6 +32,11 @@
                                   IsChecked="{Binding IsEnabled}"/>
                         <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8"
                                     VerticalAlignment="Center">
+                            <CheckBox Content="自動防削波"
+                                      IsChecked="{Binding IsAutoHeadroom}"
+                                      ToolTip.Tip="EQ 往上推多少,整體就自動壓低多少 —— 音色照樣改變,但峰值不會因為 EQ 變高而破音。"/>
+                            <TextBlock Classes="label" VerticalAlignment="Center"
+                                       Text="{Binding HeadroomText}"/>
                             <Button Classes="tiny" Content="＋ 新增頻段"
                                     Command="{Binding AddBandCommand}"
                                     IsEnabled="{Binding CanAddBand}"/>
@@ -46,6 +51,11 @@
                         <Button Grid.Column="6" Content="歸零"
                                 Command="{Binding ResetCommand}"/>
                     </Grid>
+
+                    <!-- 合成響應曲線:所有頻段疊起來、含防削波之後真正套上的形狀 -->
+                    <controls:EqCurve Height="120" HorizontalAlignment="Stretch"
+                                      ResponseDb="{Binding ResponseDb}"
+                                      IsActive="{Binding IsEnabled}"/>
 
                     <!--
                         段數會變,所以用可捲動的橫向排列而不是 UniformGrid ——
@@ -107,7 +117,7 @@
             <ContentControl Content="{Binding MicEq}"
                             ContentTemplate="{StaticResource EqTemplate}"/>
             <TextBlock Classes="hint"
-                       Text="拖動推桿即時生效。影片 EQ 同時影響耳機與虛擬麥克風;麥克風 EQ 只影響你的聲音。"/>
+                       Text="拖動推桿即時生效,參數變化會在約 50 ms 內平滑過渡,不會有爆音或「滋滋」聲。影片 EQ 同時影響耳機與虛擬麥克風;麥克風 EQ 只影響你的聲音。"/>
             <TextBlock Classes="hint"
                        Text="頻率與 Q 打完按 Enter 或點到別處才會送出。最左與最右那兩段會自動變成 shelf(從轉折點起整片抬升或壓低),中間各段是 peaking(只動那一小塊);Q 在 peaking 上代表頻寬、在 shelf 上代表轉折斜率。預設集會依每一段目前的頻率重新取值,所以增刪頻段之後仍然套得準。"/>
         </StackPanel>

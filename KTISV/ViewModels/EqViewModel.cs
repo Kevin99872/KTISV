@@ -29,7 +29,16 @@ namespace KTISV.ViewModels
         Task<EqBandSpec[]?> AddBandAsync(string target, double frequency);
 
         Task<EqBandSpec[]?> RemoveBandAsync(string target, int index);
+
+        /// <summary>自動防削波:依曲線最高點把整體壓低同樣的量。</summary>
+        void PushAutoHeadroom(string target, bool enabled);
+
+        /// <summary>向引擎要合成響應曲線(dB,含防削波)與目前壓低的量。</summary>
+        Task<EqResponse?> GetResponseAsync(string target);
     }
+
+    /// <summary>引擎算出來的響應曲線。點在 20 Hz–20 kHz 的對數軸上等距。</summary>
+    public sealed record EqResponse(double[] Db, double HeadroomDb);
 
     /// <summary>EQ 的一個頻段。頻率、增益、Q 都可以調,也可以整段刪掉。</summary>
     public sealed partial class EqBandViewModel : ViewModelBase
@@ -88,6 +97,7 @@ namespace KTISV.ViewModels
         {
             OnPropertyChanged(nameof(GainText));
             if (!_suppress) _owner.OnGainChanged();
+            else _owner.RequestResponse();
         }
 
         partial void OnFrequencyChanged(double value)
@@ -163,6 +173,49 @@ namespace KTISV.ViewModels
 
         [ObservableProperty] private bool _isEnabled = true;
         [ObservableProperty] private bool _isBusy;
+        [ObservableProperty] private bool _isAutoHeadroom;
+        [ObservableProperty] private double[]? _responseDb;
+        [ObservableProperty] private double _headroomDb;
+
+        /// <summary>防削波目前壓低了多少。沒有壓低時不顯示數字,免得像是出了什麼事。</summary>
+        public string HeadroomText => IsEnabled && IsAutoHeadroom && HeadroomDb > 0.05
+            ? $"整體 −{HeadroomDb:0.0} dB"
+            : "";
+
+        partial void OnHeadroomDbChanged(double value) => OnPropertyChanged(nameof(HeadroomText));
+
+        partial void OnIsAutoHeadroomChanged(bool value)
+        {
+            OnPropertyChanged(nameof(HeadroomText));
+            if (_suppress) return;
+            _bridge.PushAutoHeadroom(Target, value);
+            RequestResponse();
+        }
+
+        private int _responseVersion;
+
+        /// <summary>
+        /// 重新向引擎要曲線。拖推桿時每一格都會呼叫,所以收斂成最後一次:
+        /// 等 120 ms 沒有新的變動才真的送出(推桿值本身每 40 ms 批次送一次,
+        /// 等久一點才能確定引擎已經收到最新的增益)。
+        /// </summary>
+        public async void RequestResponse()
+        {
+            var version = ++_responseVersion;
+            try
+            {
+                await Task.Delay(120);
+                if (version != _responseVersion) return;
+                var response = await _bridge.GetResponseAsync(Target);
+                if (response is null || version != _responseVersion) return;
+                ResponseDb = response.Db;
+                HeadroomDb = response.HeadroomDb;
+            }
+            catch (Exception)
+            {
+                // 曲線只是顯示用,拿不到就維持上一條
+            }
+        }
 
         public bool CanAddBand => Bands.Count < MaxBands;
         public bool CanRemoveBand => Bands.Count > 1;
@@ -188,6 +241,8 @@ namespace KTISV.ViewModels
         partial void OnIsEnabledChanged(bool value)
         {
             if (!_suppress) _bridge.PushEnabled(Target, value);
+            OnPropertyChanged(nameof(HeadroomText));
+            RequestResponse();
         }
 
         // ── 來自頻段的回呼 ──────────────────────────────────────────────
@@ -195,6 +250,7 @@ namespace KTISV.ViewModels
         {
             if (_suppress) return;
             _bridge.PushGains(Target, [.. Bands.Select(b => b.GainDb)]);
+            RequestResponse();
         }
 
         internal void OnShapeChanged(EqBandViewModel band)
@@ -203,6 +259,7 @@ namespace KTISV.ViewModels
             var index = Bands.IndexOf(band);
             if (index < 0) return;
             _bridge.PushBandShape(Target, index, band.Frequency, band.Q);
+            RequestResponse();
         }
 
         // ── 增刪 ────────────────────────────────────────────────────────
@@ -299,6 +356,7 @@ namespace KTISV.ViewModels
             foreach (var band in Bands)
                 band.SetGainSilently(Interpolate(curve, band.Frequency));
             _bridge.PushGains(Target, [.. Bands.Select(b => b.GainDb)]);
+            RequestResponse();
         }
 
         /// <summary>在對數頻率軸上線性內插;兩端就取端點值。</summary>
@@ -346,10 +404,11 @@ namespace KTISV.ViewModels
                 _suppress = false;
             }
             RaiseStructureChanged();
+            RequestResponse();
         }
 
         /// <summary>週期性狀態回填 —— 只碰增益,結構交給 <see cref="LoadBands"/>。</summary>
-        public void LoadFrom(double[] gains, bool enabled)
+        public void LoadFrom(double[] gains, bool enabled, bool? autoHeadroom = null)
         {
             _suppress = true;
             try
@@ -362,6 +421,7 @@ namespace KTISV.ViewModels
                         Bands[i].SetGainSilently(gains[i]);
                 }
                 IsEnabled = enabled;
+                if (autoHeadroom is { } headroom) IsAutoHeadroom = headroom;
             }
             finally
             {

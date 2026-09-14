@@ -44,6 +44,17 @@ try {
     & $venvPython -m PyInstaller ktisv_engine.spec --noconfirm --distpath dist --workpath build
     if ($LASTEXITCODE -ne 0) { throw "PyInstaller 失敗" }
 
+    # 內建的自訓模型(engine\models\*.onnx)跟著引擎一起發佈。
+    # 不走 PyInstaller 的 datas:那會把 55 MB 塞進 _internal,換模型還得重跑整個分析。
+    $modelSrc = Join-Path $engine "models"
+    $modelDst = Join-Path $engine "dist\ktisv-engine\models"
+    if (Test-Path $modelSrc) {
+        New-Item -ItemType Directory -Force $modelDst | Out-Null
+        Get-ChildItem $modelDst -Filter *.onnx -ErrorAction SilentlyContinue | Remove-Item -Force
+        Copy-Item (Join-Path $modelSrc "*.onnx") $modelDst -Force
+        Write-Host "已複製內建模型:$((Get-ChildItem $modelDst -Filter *.onnx).Name -join ', ')" -ForegroundColor Cyan
+    }
+
     $exe = Join-Path $engine "dist\ktisv-engine\ktisv-engine.exe"
     if (-not (Test-Path $exe)) { throw "找不到產物 $exe" }
 

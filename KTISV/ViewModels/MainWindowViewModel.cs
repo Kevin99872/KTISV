@@ -284,7 +284,10 @@ namespace KTISV.ViewModels
 
         // ── 分離 ────────────────────────────────────────────────────────
         public ObservableCollection<string> SeparationEngines { get; } =
-            ["即時中央消除(零延遲)", "Demucs 高品質(離線處理)"];
+            ["即時中央消除(零延遲)", "Demucs 高品質(離線處理)", "自訓模型 · 只留樂器(離線處理)"];
+
+        /// <summary>下拉選單索引 → 引擎的模式名稱。</summary>
+        private static readonly string[] SeparationModes = ["realtime", "demucs", "custom"];
 
         [ObservableProperty] private int _separationEngineIndex;
         [ObservableProperty] private bool _removeVocals;
@@ -340,21 +343,95 @@ namespace KTISV.ViewModels
                 overlap = DemucsOverlap,
             });
             // 參數變了,已載入的歌要重跑才會反映
-            if (DurationSeconds > 0 && !IsRealtimeSeparation) NeedsReload = true;
+            if (DurationSeconds > 0 && IsDemucsSeparation) NeedsReload = true;
         }
         [ObservableProperty] private string _demucsStatus = "尚未偵測";
         [ObservableProperty] private bool _needsReload;
 
         public bool IsRealtimeSeparation => SeparationEngineIndex == 0;
+        public bool IsDemucsSeparation => SeparationEngineIndex == 1;
+        public bool IsCustomSeparation => SeparationEngineIndex == 2;
 
         partial void OnSeparationEngineIndexChanged(int value)
         {
             OnPropertyChanged(nameof(IsRealtimeSeparation));
+            OnPropertyChanged(nameof(IsDemucsSeparation));
+            OnPropertyChanged(nameof(IsCustomSeparation));
             if (_suppressPush) return;
-            var mode = value == 0 ? "realtime" : "demucs";
+            var mode = SeparationModes[Math.Clamp(value, 0, SeparationModes.Length - 1)];
             _ = SafeCallAsync("set_separation_engine", new { mode });
             NeedsReload = DurationSeconds > 0;
             if (value == 1) _ = ProbeDemucsAsync();
+            if (value == 2) _ = RefreshCustomModelsAsync();
+        }
+
+        // ── 自訓模型(ONNX)──────────────────────────────────────────────
+        public ObservableCollection<string> CustomModels { get; } = [];
+        private readonly List<string> _customModelPaths = [];
+
+        [ObservableProperty] private int _customModelIndex = -1;
+        [ObservableProperty] private string _customModelStatus = "尚未偵測";
+
+        /// <summary>殘留人聲抑制(0–100%)。越高伴奏裡越聽不到人聲,但和人聲同頻的樂器會變薄。</summary>
+        [ObservableProperty] private double _customSuppression;
+
+        partial void OnCustomModelIndexChanged(int value)
+        {
+            if (_suppressPush || value < 0 || value >= _customModelPaths.Count) return;
+            _ = SafeCallAsync("set_custom_model", new { path = _customModelPaths[value] });
+            if (DurationSeconds > 0 && IsCustomSeparation) NeedsReload = true;
+        }
+
+        partial void OnCustomSuppressionChanged(double value)
+        {
+            if (_suppressPush) return;
+            _client.Post("set_custom_params", new { suppression = value / 100.0 });
+            if (DurationSeconds > 0 && IsCustomSeparation) NeedsReload = true;
+        }
+
+        [RelayCommand]
+        private async Task RefreshCustomModelsAsync()
+        {
+            CustomModelStatus = "偵測中…";
+            try
+            {
+                var result = await _client.CallAsync("list_custom_models");
+                var selected = result.TryGetProperty("selected", out var sel) ? sel.GetString() ?? "" : "";
+                _suppressPush = true;
+                try
+                {
+                    CustomModels.Clear();
+                    _customModelPaths.Clear();
+                    if (result.TryGetProperty("models", out var models))
+                    {
+                        foreach (var model in models.EnumerateArray())
+                        {
+                            var mb = model.GetProperty("bytes").GetDouble() / 1048576.0;
+                            CustomModels.Add($"{model.GetProperty("name").GetString()} ({mb:0} MB)");
+                            _customModelPaths.Add(model.GetProperty("path").GetString() ?? "");
+                        }
+                    }
+                    // 引擎沒指定時用的是最新的那個,也就是清單的第一個
+                    var index = _customModelPaths.IndexOf(selected);
+                    CustomModelIndex = CustomModels.Count == 0 ? -1 : Math.Max(0, index);
+                    if (result.TryGetProperty("suppression", out var sup))
+                        CustomSuppression = Math.Round(sup.GetDouble() * 100);
+                }
+                finally
+                {
+                    _suppressPush = false;
+                }
+
+                var available = result.TryGetProperty("available", out var a) && a.GetBoolean();
+                var dir = result.TryGetProperty("dir", out var d) ? d.GetString() : "";
+                CustomModelStatus = available
+                    ? $"可用 · 共 {CustomModels.Count} 個模型"
+                    : $"不可用 —— {(result.TryGetProperty("reason", out var r) ? r.GetString() : "")}(模型資料夾:{dir})";
+            }
+            catch (Exception ex)
+            {
+                CustomModelStatus = $"偵測失敗: {ex.Message}";
+            }
         }
 
         partial void OnRemoveVocalsChanged(bool value) => PushSeparationFlags();
@@ -908,6 +985,21 @@ namespace KTISV.ViewModels
         async Task<EqBandSpec[]?> IEqBridge.RemoveBandAsync(string target, int index)
             => await CallEqStructureAsync("eq_remove_band", new { target, index });
 
+        void IEqBridge.PushAutoHeadroom(string target, bool enabled)
+            => _client.Post("eq_set_headroom", new { target, enabled });
+
+        async Task<EqResponse?> IEqBridge.GetResponseAsync(string target)
+        {
+            if (!IsConnected) return null;
+            // 先把還在排隊的推桿值送出去,曲線才會是最新的增益算出來的
+            _sender?.Flush();
+            var result = await _client.CallAsync("eq_response", new { target, points = 160 });
+            if (!result.TryGetProperty("db", out var db) || db.ValueKind != JsonValueKind.Array)
+                return null;
+            var headroom = result.TryGetProperty("headroom_db", out var h) ? h.GetDouble() : 0;
+            return new EqResponse([.. db.EnumerateArray().Select(v => v.GetDouble())], headroom);
+        }
+
         /// <summary>
         /// 增刪頻段。先把待送的推桿值倒乾淨 —— eq_set_all 是照索引對應的,
         /// 讓它排在增刪之後才送達的話,整排增益會位移一格。
@@ -1069,9 +1161,9 @@ namespace KTISV.ViewModels
                     HasFfmpeg = ffmpeg.GetBoolean();
 
                 if (status.TryGetProperty("music_eq", out var musicEq))
-                    MusicEq.LoadFrom(ReadGains(musicEq), ReadEnabled(musicEq));
+                    MusicEq.LoadFrom(ReadGains(musicEq), ReadEnabled(musicEq), ReadAutoHeadroom(musicEq));
                 if (status.TryGetProperty("mic_eq", out var micEq))
-                    MicEq.LoadFrom(ReadGains(micEq), ReadEnabled(micEq));
+                    MicEq.LoadFrom(ReadGains(micEq), ReadEnabled(micEq), ReadAutoHeadroom(micEq));
 
                 if (status.TryGetProperty("separator", out var sep))
                 {
@@ -1274,6 +1366,12 @@ namespace KTISV.ViewModels
             element.TryGetProperty("gains", out var g) && g.ValueKind == JsonValueKind.Array
                 ? g.EnumerateArray().Select(x => x.GetDouble()).ToArray()
                 : [];
+
+        private static bool? ReadAutoHeadroom(JsonElement element) =>
+            element.TryGetProperty("auto_headroom", out var value)
+            && value.ValueKind is JsonValueKind.True or JsonValueKind.False
+                ? value.GetBoolean()
+                : null;
 
         private static bool ReadEnabled(JsonElement element) =>
             !element.TryGetProperty("enabled", out var e) || e.GetBoolean();

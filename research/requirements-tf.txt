@@ -1,0 +1,29 @@
+# TensorFlow 訓練環境(research/.venv-tf,Python 3.10)
+#
+#   uv venv --python 3.10 .venv-tf
+#   VIRTUAL_ENV=.venv-tf uv pip install -r requirements-tf.txt
+#   VIRTUAL_ENV=.venv-tf uv pip install --no-deps \
+#       --index-url https://download.pytorch.org/whl/cu118 torch==2.3.1+cu118
+#
+# 最後那一行不是筆誤,理由見 TENSORFLOW.md 的「GPU」一節:
+# .venv-tf 裡的 torch 只是一包 CUDA 11 的 DLL,不拿來訓練。
+#
+# 為什麼版本釘得這麼死:這一整組是「Windows 上還能用 GPU 的 TensorFlow」
+# 唯一還兜得起來的組合。TF 2.11 起 Windows 只剩 CPU;TF 2.9 只支援
+# Python ≤3.10;它又要求 protobuf<3.20,而 protobuf<3.20 只有 onnx 1.12
+# 配得上去。動任何一個版本,另外三個就會跟著垮。
+
+tensorflow==2.9.3
+numpy==1.23.5           # TF 2.9 不支援 numpy>=1.24(np.object 等別名被移除)
+scipy==1.11.4
+
+# 音訊讀寫。imageio-ffmpeg 內附靜態 ffmpeg,不需要使用者自行安裝。
+soundfile>=0.12
+imageio-ffmpeg>=0.4.9
+tqdm>=4.66
+
+# 匯出給 C# 端的 ONNX Runtime。
+# onnx 必須是 1.12 —— 1.13 起要求 protobuf>=3.20,和 TF 2.9 直接衝突。
+onnx==1.12.0
+tf2onnx==1.13.0
+onnxruntime==1.15.1
