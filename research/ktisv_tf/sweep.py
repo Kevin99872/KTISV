@@ -130,6 +130,8 @@ def run_round(entry: dict, champion: dict | None, folder: Path,
         options["--resume"] = champion["weights"]
     elif resume:
         options["--resume"] = resume
+    if options.get("--resume") and not Path(options["--resume"]).exists():
+        raise SystemExit(f"{name}:找不到要接續的權重 {options['--resume']}")
 
     command = [PYTHON, "-u", "-m", "ktisv_tf.train"]
     for key, value in options.items():
@@ -168,6 +170,16 @@ def run_round(entry: dict, champion: dict | None, folder: Path,
 
 
 # ── 主流程 ──────────────────────────────────────────────────────────────
+def _keep_awake() -> None:
+    """掃參數動輒跑一整晚。在這個行程存活期間要求 Windows 不要進入睡眠
+    (不改任何電源設定,行程結束就自動失效)。"""
+    if sys.platform != "win32":
+        return
+    import ctypes
+    ES_CONTINUOUS, ES_SYSTEM_REQUIRED = 0x80000000, 0x00000001
+    ctypes.windll.kernel32.SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="反覆調參重訓,直到分數不再進步")
     parser.add_argument("--queue", default="data/sweep/queue.json")
@@ -181,7 +193,10 @@ def main(argv: list[str] | None = None) -> int:
                                                  / "ktisv-instrumental.onnx"))
     parser.add_argument("--champion", default=None,
                         help="起始冠軍的權重 .h5(旁邊要有同名 .json)")
+    parser.add_argument("--deadline", default=None,
+                        help="HH:MM,超過這個時間就不再開新的一輪")
     args = parser.parse_args(argv)
+    _keep_awake()
     args.songs = [s for s in args.songs.split(",") if s]
 
     folder = Path(args.folder)
@@ -219,6 +234,12 @@ def main(argv: list[str] | None = None) -> int:
         if not pending:
             print("佇列已空。")
             break
+        if args.deadline:
+            hour, minute = (int(x) for x in args.deadline.split(":"))
+            now = time.localtime()
+            if (now.tm_hour, now.tm_min) >= (hour, minute):
+                print(f"已過 {args.deadline},不再開新的一輪。")
+                break
         entry = dict(pending[0])
         round_no += 1
         entry["_round"] = round_no

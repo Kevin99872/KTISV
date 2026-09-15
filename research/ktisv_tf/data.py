@@ -55,6 +55,8 @@ class DataConfig:
     independent_prob: float = 0.5
     # 幾乎全靜音的片段重抽,最多試這麼多次(避免資料本身很安靜時卡住)
     silence_retries: int = 8
+    # 音色增強的機率(0 = 關閉)。見 augment_timbre。
+    augment_prob: float = 0.0
     mix: MixConfig = field(default_factory=MixConfig)
 
 
@@ -257,10 +259,49 @@ def sample_once(tracks: list[Track], config: DataConfig,
         if not is_mostly_silent(vocals):
             break
 
-    stems = mix_stems(augment_vocals(vocals, rng), accompaniment,
-                      config.mix, rng)
+    vocals = augment_vocals(vocals, rng)
+    if config.augment_prob > 0:
+        if rng.random() < config.augment_prob:
+            vocals = augment_timbre(vocals, rng, width=False)
+        if rng.random() < config.augment_prob:
+            accompaniment = augment_timbre(accompaniment, rng, width=True)
+    stems = mix_stems(vocals, accompaniment, config.mix, rng)
     # 模型吃 (channels, samples),音訊慣例是 (samples, channels)
     return stems["mixture"].T.copy(), stems["vocals"].T.copy()
+
+
+def augment_timbre(audio: np.ndarray, rng: np.random.Generator,
+                   width: bool) -> np.ndarray:
+    """隨機的音色傾斜與立體聲寬度。
+
+    訓練資料只有 39 首,每首歌的混音風格(亮/暗、寬/窄)模型很快就記住了,
+    換一首沒聽過的歌就對不上。這裡對**各別的分軌**做:
+
+    * 以約 800 Hz 為支點的傾斜 EQ,±4 dB —— 模擬不同的混音與母帶取向
+    * 伴奏的 side 聲道 ×0.6–1.4 —— 模擬不同的立體聲寬度,並逼模型不要把
+      「置中 = 人聲」當捷徑(置中的貝斯、大鼓同樣存在)
+
+    在混音**之前**對分軌做,混音 = 人聲 + 伴奏的可加性不受影響 ——
+    正確答案跟著一起變,而不是讓輸入和答案對不上。
+
+    刻意不做音高/速度變換,理由同 ``augment_vocals``。
+    """
+    from scipy.signal import lfilter
+
+    out = audio.astype(np.float32, copy=True)
+    tilt = rng.uniform(-4.0, 4.0)
+    alpha = 1.0 - np.exp(-2.0 * np.pi * 800.0 / SAMPLE_RATE)
+    low = lfilter([alpha], [1.0, alpha - 1.0], out, axis=0).astype(np.float32)
+    high = out - low
+    out = low * 10.0 ** (-tilt / 40.0) + high * 10.0 ** (tilt / 40.0)
+
+    if width and out.shape[1] == 2:
+        mid = 0.5 * (out[:, 0] + out[:, 1])
+        side = 0.5 * (out[:, 0] - out[:, 1]) * rng.uniform(0.6, 1.4)
+        out = np.stack([mid + side, mid - side], axis=1)
+        if rng.random() < 0.5:
+            out = out[:, ::-1]
+    return np.ascontiguousarray(out, dtype=np.float32)
 
 
 def _start(track: Track, length: int, rng: np.random.Generator) -> int:

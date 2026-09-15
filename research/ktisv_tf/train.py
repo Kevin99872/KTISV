@@ -77,17 +77,24 @@ class Loss:
 
     def __init__(self, config, spectral_weight: float,
                  accompaniment_weight: float = 0.0,
-                 leak_weight: float = 0.0) -> None:
+                 leak_weight: float = 0.0,
+                 multi_resolution: tuple[int, ...] = (),
+                 multi_resolution_weight: float = 0.0) -> None:
         self.stft = ConvSTFT(config.n_fft, config.hop_length, name="loss_stft")
+        # 多解析度:短窗看得清暫態(鼓、子音),長窗分得開低頻的音高。
+        # 主 STFT(2048)兩者都顧不好,加上兩端的尺度幾乎不增加 VRAM。
+        self.extra = [ConvSTFT(n, n // 4, name=f"loss_stft_{n}")
+                      for n in multi_resolution if n != config.n_fft]
+        self.multi_resolution_weight = float(multi_resolution_weight)
         self.spectral_weight = float(spectral_weight)
         self.accompaniment_weight = float(accompaniment_weight)
         self.leak_weight = float(leak_weight)
         self.samples = None
 
-    def magnitude(self, waveform: tf.Tensor) -> tf.Tensor:
+    def magnitude(self, waveform: tf.Tensor, stft=None) -> tf.Tensor:
         """(B, C, N) → 對數壓縮後的幅度譜。"""
         flat = tf.reshape(waveform, [-1, tf.shape(waveform)[-1]])
-        real, imag = self.stft(flat)
+        real, imag = (stft or self.stft)(flat)
         # 對數壓縮:與模型輸入端同樣的理由 —— 不壓縮的話,少數高能量的
         # 時頻點會主導損失,安靜段落的誤差幾乎沒有梯度。
         return tf.math.log(tf.sqrt(real * real + imag * imag + 1e-12) + 1.0)
@@ -104,6 +111,11 @@ class Loss:
             spectral = tf.reduce_mean(
                 tf.abs(self.magnitude(estimate) - self.magnitude(target)))
             total = total + self.spectral_weight * spectral
+        if self.extra and self.multi_resolution_weight > 0:
+            for stft in self.extra:
+                term = tf.reduce_mean(tf.abs(self.magnitude(estimate, stft)
+                                             - self.magnitude(target, stft)))
+                total = total + self.multi_resolution_weight * term
 
         accompaniment = zero
         if mixture is not None and (self.accompaniment_weight > 0
@@ -290,7 +302,8 @@ def run(args: argparse.Namespace) -> int:
     print(f"  驗證    {describe(val_tracks)}  ({', '.join(t.name for t in val_tracks)})")
 
     data_config = DataConfig(segment_samples=args.segment_samples,
-                             independent_prob=args.independent_prob)
+                             independent_prob=args.independent_prob,
+                             augment_prob=args.augment_prob)
     train_data = make_dataset(train_tracks, data_config, args.batch_size,
                               seed=args.seed)
     val_data = make_dataset(val_tracks, data_config, args.batch_size,
@@ -310,7 +323,9 @@ def run(args: argparse.Namespace) -> int:
     schedule = WarmupCosine(args.lr, args.steps, args.warmup)
     optimizer = keras.optimizers.Adam(schedule)
     loss_fn = Loss(config, args.spectral_weight,
-                   args.accompaniment_weight, args.leak_weight)
+                   args.accompaniment_weight, args.leak_weight,
+                   tuple(int(n) for n in args.multi_resolution.split(",") if n.strip()),
+                   args.multi_resolution_weight)
     def selection_score(scores: dict) -> float:
         if args.select == "vocals":
             return scores["si_sdr_improvement"]
@@ -413,6 +428,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--spectral-weight", type=float, default=1.0)
     parser.add_argument("--accompaniment-weight", type=float, default=0.0,
                         help="伴奏幅度譜 L1 的權重(0 = 關閉,沿用舊行為)")
+    parser.add_argument("--augment-prob", type=float, default=0.0,
+                        help="各分軌做音色傾斜/立體聲寬度增強的機率")
+    parser.add_argument("--multi-resolution", default="",
+                        help="額外的 STFT 尺度,例如 512,4096")
+    parser.add_argument("--multi-resolution-weight", type=float, default=0.0)
     parser.add_argument("--leak-weight", type=float, default=0.0,
                         help="伴奏裡「多出來」能量(漏進來的人聲)的額外懲罰")
     parser.add_argument("--warmup", type=int, default=0,
