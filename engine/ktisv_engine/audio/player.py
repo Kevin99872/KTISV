@@ -64,6 +64,47 @@ class StemPlayer:
             self._finished = False
             self.title = title
 
+    def waveform(self, bins: int = 1200) -> dict:
+        """給前端畫音軌用的包絡:每一格取 RMS,量化成 0–255。
+
+        用 RMS 而不是峰值:現代母帶幾乎每一格的峰值都頂到 0 dBFS,畫出來是一整片
+        平的;RMS 才看得出主歌、副歌、間奏的起伏。
+
+        ``mix`` 是所有分軌相加(就是原曲);有 ``vocals`` 分軌時另外附上,
+        前端畫在下半部 —— 一眼看出哪裡有歌聲。
+        兩者用同一個刻度(以原曲最大的一格為滿格),上下才比得起來。
+        """
+        with self._lock:
+            stems = dict(self._stems)
+            length = self._length
+        if length == 0 or bins <= 0:
+            return {"bins": 0, "mix": []}
+        bins = min(bins, length)
+        edges = np.linspace(0, length, bins + 1).astype(np.int64)
+        counts = np.diff(edges).astype(np.float64)
+
+        def envelope(power: np.ndarray) -> np.ndarray:
+            if len(power) < length:
+                power = np.pad(power, (0, length - len(power)))
+            return np.sqrt(np.add.reduceat(power, edges[:-1]) / counts)
+
+        def power_of(data: np.ndarray) -> np.ndarray:
+            return np.einsum("ij,ij->i", data, data) * 0.5
+
+        mix = np.zeros((length, 2), np.float32)
+        for data in stems.values():
+            mix[:len(data)] += data
+        mix_env = envelope(power_of(mix))
+        scale = 255.0 / max(float(mix_env.max()), 1e-9)
+
+        def quantize(env: np.ndarray) -> list[int]:
+            return np.clip(np.rint(env * scale), 0, 255).astype(int).tolist()
+
+        result = {"bins": bins, "mix": quantize(mix_env)}
+        if "vocals" in stems:
+            result["vocals"] = quantize(envelope(power_of(stems["vocals"])))
+        return result
+
     def unload(self) -> None:
         with self._lock:
             self._stems = {}

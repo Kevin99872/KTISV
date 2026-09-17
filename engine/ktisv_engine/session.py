@@ -590,6 +590,7 @@ class Session:
             self._progress("就緒", 1.0)
             self._emit("loaded", {"media": info.to_dict(),
                                   "player": self.engine.player.state(),
+                                  "waveform": self.engine.player.waveform(),
                                   "engine": self.separation_mode})
             if autoplay and self.engine.running:
                 self.engine.player.play()

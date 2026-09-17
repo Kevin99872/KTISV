@@ -63,12 +63,12 @@ BASE_ARGS = {
 
 # ── 評估 ────────────────────────────────────────────────────────────────
 def leak_sir(estimate: np.ndarray, accompaniment: np.ndarray,
-             vocals: np.ndarray) -> float:
+             vocals: np.ndarray, cap: float = 60.0) -> float:
     basis = np.stack([accompaniment.reshape(-1), vocals.reshape(-1)], 1).astype(np.float64)
     coef, *_ = np.linalg.lstsq(basis, estimate.reshape(-1).astype(np.float64), rcond=None)
     wanted = np.sum((coef[0] * basis[:, 0]) ** 2)
     leak = max(np.sum((coef[1] * basis[:, 1]) ** 2), 1e-12)
-    return float(min(60.0, 10 * np.log10(wanted / leak)))
+    return float(min(cap, 10 * np.log10(wanted / leak)))
 
 
 def separate(session, mixture: np.ndarray) -> np.ndarray:
@@ -91,12 +91,14 @@ def separate(session, mixture: np.ndarray) -> np.ndarray:
     return out / np.maximum(weight, 1e-6)
 
 
-def evaluate(onnx_path: Path, data: Path, songs: list[str],
-             seconds: float) -> dict[str, float]:
+def evaluate(onnx_path: Path, data: Path, songs: list[str], seconds: float,
+             sir_weight: float = 0.5, sir_cap: float = 60.0) -> dict:
+    """``sir_cap``:殘留 SIR 超過某個程度就聽不出差別了,再高只是讓平均值
+    被一兩首歌灌水、把挑選推向犧牲伴奏的方向。"""
     import onnxruntime as ort
 
     session = ort.InferenceSession(str(onnx_path), providers=["CPUExecutionProvider"])
-    sdr, sir = [], []
+    sdr, sir, raw = [], [], []
     for song in songs:
         frames = int(seconds * 44100)
         vocals, _ = sf.read(data / song / "vocals.wav", dtype="float32", frames=frames)
@@ -106,10 +108,13 @@ def evaluate(onnx_path: Path, data: Path, songs: list[str],
         mixture = vocals + backing
         estimate = mixture - separate(session, mixture)
         sdr.append(si_sdr(backing, estimate))
-        sir.append(leak_sir(estimate, backing, vocals))
+        raw.append(leak_sir(estimate, backing, vocals))
+        sir.append(min(raw[-1], sir_cap))
     result = {"accompaniment_si_sdr": float(np.mean(sdr)),
-              "vocal_leak_sir": float(np.mean(sir))}
-    result["score"] = result["accompaniment_si_sdr"] + 0.5 * result["vocal_leak_sir"]
+              "vocal_leak_sir": float(np.mean(sir)),
+              "per_song": {s: [round(float(a), 2), round(b, 2)]
+                           for s, a, b in zip(songs, sdr, raw)}}
+    result["score"] = result["accompaniment_si_sdr"] + sir_weight * result["vocal_leak_sir"]
     return result
 
 
@@ -160,7 +165,8 @@ def run_round(entry: dict, champion: dict | None, folder: Path,
     if code != 0 or not onnx_path.exists():
         return {"name": name, "status": "export_failed", "code": code}
 
-    scores = evaluate(onnx_path, Path(args.data), args.songs, args.seconds)
+    scores = evaluate(onnx_path, Path(args.data), args.songs, args.seconds,
+                      args.sir_weight, args.sir_cap)
     best_json = json.loads((out / "best.json").read_text("utf-8"))
     return {"name": name, "status": "ok", **scores,
             "minutes": (time.time() - started) / 60,
@@ -187,6 +193,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--data", default="data/ktisv-cache")
     parser.add_argument("--seconds", type=float, default=90.0)
     parser.add_argument("--songs", default=",".join(DEFAULT_VAL))
+    parser.add_argument("--sir-weight", type=float, default=0.5,
+                        help="分數裡人聲殘留 SIR 的權重")
+    parser.add_argument("--sir-cap", type=float, default=60.0,
+                        help="每首歌的殘留 SIR 先截到這個上限再平均")
     parser.add_argument("--patience", type=int, default=3)
     parser.add_argument("--min-gain", type=float, default=0.1)
     parser.add_argument("--install", default=str(RESEARCH.parent / "engine" / "models"
@@ -218,7 +228,9 @@ def main(argv: list[str] | None = None) -> int:
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         champion = {"name": "initial", "preset": meta["preset"], "weights": str(weights),
                     "onnx": str(onnx_path),
-                    **evaluate(onnx_path, Path(args.data), args.songs, args.seconds)}
+                    **evaluate(onnx_path, Path(args.data), args.songs, args.seconds,
+                               args.sir_weight, args.sir_cap)}
+        champion.pop("per_song", None)
         print(f"起始冠軍 {weights}:分數 {champion['score']:.2f}"
               f"(伴奏 {champion['accompaniment_si_sdr']:.2f} / 殘留 SIR {champion['vocal_leak_sir']:.2f})")
 

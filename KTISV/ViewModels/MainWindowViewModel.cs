@@ -255,6 +255,12 @@ namespace KTISV.ViewModels
         [ObservableProperty] private double _durationSeconds;
         [ObservableProperty] private bool _loop;
 
+        /// <summary>音軌包絡(0–255),由引擎在載入時算好。沒載入時為 null。</summary>
+        [ObservableProperty] private byte[]? _waveformPeaks;
+
+        /// <summary>人聲分軌的包絡,與 <see cref="WaveformPeaks"/> 同刻度。只有分軌模式才有。</summary>
+        [ObservableProperty] private byte[]? _waveformVocalPeaks;
+
         public string PositionText => FormatTime(PositionSeconds);
         public string DurationText => FormatTime(DurationSeconds);
         public string PlayPauseGlyph => IsPlaying ? "⏸" : "▶";
@@ -1636,8 +1642,27 @@ namespace KTISV.ViewModels
                     DurationSeconds = duration.GetDouble();
             }
             if (data.TryGetProperty("player", out var player)) ApplyPlayerState(player);
+            WaveformPeaks = null;
+            WaveformVocalPeaks = null;
+            if (data.TryGetProperty("waveform", out var waveform))
+            {
+                WaveformPeaks = ReadPeaks(waveform, "mix");
+                WaveformVocalPeaks = ReadPeaks(waveform, "vocals");
+            }
             StatusText = "音源已就緒";
             AppendLog($"已載入: {TrackTitle}");
+        }
+
+        private static byte[]? ReadPeaks(JsonElement waveform, string name)
+        {
+            if (!waveform.TryGetProperty(name, out var array)
+                || array.ValueKind != JsonValueKind.Array)
+                return null;
+            var peaks = new byte[array.GetArrayLength()];
+            var i = 0;
+            foreach (var item in array.EnumerateArray())
+                peaks[i++] = (byte)Math.Clamp(item.GetInt32(), 0, 255);
+            return peaks.Length > 0 ? peaks : null;
         }
 
         private void OnDisconnected(Exception? error)

@@ -1337,6 +1337,26 @@ def test_vocal_leak_suppression() -> None:
     check("分塊接縫沒有額外誤差", local < error_clean * 1.5,
           f"接縫 {local:.4f} vs 整體 {error_clean:.4f}")
 
+def test_waveform() -> None:
+    print("音軌包絡")
+    from ktisv_engine.audio.player import StemPlayer
+    sr = SAMPLE_RATE
+    player = StemPlayer(sr)
+    check("沒載入時是空的", player.waveform()["bins"] == 0)
+    # 前 1 秒安靜伴奏,後 1 秒大聲人聲 + 伴奏;人聲軌比伴奏軌短
+    backing = np.full((sr * 2, 2), 0.1, np.float32)
+    vocals = np.zeros((sr * 2 - 100, 2), np.float32)
+    vocals[sr:] = 0.4
+    player.load({"vocals": vocals, "instrumental": backing})
+    wave = player.waveform(bins=100)
+    mix, voc = np.array(wave["mix"]), np.array(wave["vocals"])
+    check("格數正確", wave["bins"] == 100 and len(mix) == 100 and len(voc) == 100)
+    check("原曲最響的一格是滿格", mix.max() == 255, f"{mix.max()}")
+    check("安靜段落約 1/5 高(RMS 0.1 vs 0.5)", abs(int(mix[10]) - 51) <= 1, f"{mix[10]}")
+    check("人聲只出現在後半", voc[:49].max() == 0 and voc[60] == 204, f"{voc[60]}")
+    player.load({"mix": backing})
+    check("沒有人聲軌就不附", "vocals" not in player.waveform())
+
 
 def main() -> int:
     for fn in (test_ring, test_smooth_gain, test_eq, test_eq_bands, test_eq_smoothing, test_pitch,
@@ -1344,7 +1364,7 @@ def main() -> int:
                test_monitor_send, test_denoise, test_limiter, test_drift,
                test_calibration,
                test_calibration_in_engine, test_engine_mix,
-               test_engine_pitch, test_vocal_leak_suppression):
+               test_engine_pitch, test_vocal_leak_suppression, test_waveform):
         fn()
         print()
     if FAILURES:

@@ -1,8 +1,6 @@
 using System.Linq;
 using System.Threading.Tasks;
 using Avalonia.Controls;
-using Avalonia.Input;
-using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
 using KTISV.ViewModels;
 
@@ -14,11 +12,9 @@ namespace KTISV.Views
         {
             InitializeComponent();
 
-            // 拖動進度條時要先停止引擎回填位置,否則游標會被拉回去
-            SeekSlider.AddHandler(PointerPressedEvent, OnSeekPressed,
-                                  RoutingStrategies.Tunnel);
-            SeekSlider.AddHandler(PointerReleasedEvent, OnSeekReleased,
-                                  RoutingStrategies.Tunnel);
+            // 拖動音軌時要先停止引擎回填位置,否則游標會被拉回去
+            SeekBar.SeekStarted += (_, _) => ViewModel?.BeginSeek();
+            SeekBar.SeekCompleted += (_, _) => ViewModel?.EndSeek();
         }
 
         private MainWindowViewModel? ViewModel => DataContext as MainWindowViewModel;
@@ -29,12 +25,6 @@ namespace KTISV.Views
             if (ViewModel is { } viewModel)
                 viewModel.PickAudioFileAsync = PickAudioFileAsync;
         }
-
-        private void OnSeekPressed(object? sender, PointerPressedEventArgs e)
-            => ViewModel?.BeginSeek();
-
-        private void OnSeekReleased(object? sender, PointerReleasedEventArgs e)
-            => ViewModel?.EndSeek();
 
         private async Task<string?> PickAudioFileAsync()
         {
