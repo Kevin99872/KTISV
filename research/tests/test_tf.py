@@ -254,12 +254,60 @@ def test_can_overfit() -> None:
           f"{first:.4f} → {last:.4f}({time.time() - started:.0f}s)")
 
 
+def test_solo_tracks() -> None:
+    """純人聲歌曲(GTSinger)一定配上別首的伴奏,而且可加性不受殘響影響。"""
+    import tempfile
+
+    import soundfile as sf
+
+    from ktisv_tf.data import (DataConfig, add_reverb, load_tracks,
+                               sample_once, select_tracks)
+
+    print("純人聲資料")
+    rng = np.random.default_rng(0)
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        noise = lambda: (rng.standard_normal((44100 * 2, 2)) * 0.1).astype(np.float32)
+        for name, solo in (("musdb-train-a", False), ("musdb-valid-b", False),
+                           ("gts-zh-alto-c", True)):
+            folder = root / name
+            folder.mkdir()
+            sf.write(folder / "vocals.wav", noise(), 44100, subtype="PCM_16")
+            if solo:
+                (folder / "solo.txt").write_text("vocals only\n")
+            else:
+                sf.write(folder / "accompaniment.wav", noise(), 44100,
+                         subtype="PCM_16")
+        # 少了伴奏又沒標記 solo.txt 的資料夾不能被靜靜收進來
+        (root / "broken").mkdir()
+        sf.write(root / "broken" / "vocals.wav", noise(), 44100)
+
+        tracks = load_tracks(root)
+        check("載入配對與純人聲、略過未標記的", [t.name for t in tracks] ==
+              ["gts-zh-alto-c", "musdb-train-a", "musdb-valid-b"])
+        check("樣式挑選", [t.name for t in select_tracks(tracks, "musdb-valid-*")]
+              == ["musdb-valid-b"])
+
+        config = DataConfig(segment_samples=44100, solo_prob=1.0,
+                            reverb_prob=1.0, independent_prob=0.0)
+        mixture, vocals = sample_once(tracks, config, rng)
+        check("純人聲樣本的伴奏不是空的",
+              float(np.std(mixture - vocals)) > 1e-3)
+
+    dry = np.zeros((44100, 2), np.float32)
+    dry[100] = 1.0
+    wet = add_reverb(dry, np.random.default_rng(1))
+    tail = float(np.sum(wet[4410:] ** 2))
+    check("殘響有尾巴、長度不變", wet.shape == dry.shape and tail > 1e-4,
+          f"0.1 秒後能量 {tail:.4f}")
+
+
 def main() -> int:
     print(f"TensorFlow {tf.__version__} / 裝置:{device()}\n")
     tests = (test_stft_roundtrip, test_stft_matches_reference,
              test_shapes_and_additivity, test_alignment, test_mask_range,
              test_length_transfer, test_memory_footprint,
-             test_can_overfit)
+             test_can_overfit, test_solo_tracks)
     for fn in tests:
         fn()
         print()

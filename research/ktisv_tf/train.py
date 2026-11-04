@@ -34,6 +34,7 @@ import json
 import math
 import sys
 import time
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -46,7 +47,7 @@ from ktisv_research.metrics import si_sdr
 
 from . import SAMPLE_RATE, __version__
 from .data import (DataConfig, describe, load_tracks, make_dataset,
-                   split_by_track)
+                   select_tracks, split_by_track)
 from .model import (PRESETS, ConvSTFT, aligned_length, build_separator,
                     build_unet, config_to_dict)
 
@@ -288,25 +289,37 @@ def run(args: argparse.Namespace) -> int:
     if args.val_tracks:
         # 續訓時一定要用這個:隨機切分會隨資料量改變,新的驗證集可能正好是
         # 舊權重訓練時聽過的歌 —— 分數漂亮但毫無意義,挑出來的 best 也不可信。
-        wanted = {name.strip() for name in args.val_tracks.split(",") if name.strip()}
-        val_tracks = [t for t in tracks if t.name in wanted]
-        train_tracks = [t for t in tracks if t.name not in wanted]
-        missing = wanted - {t.name for t in val_tracks}
-        if missing or not val_tracks:
-            raise SystemExit(f"--val-tracks 找不到:{', '.join(sorted(missing))}")
+        val_tracks = select_tracks(tracks, args.val_tracks)
+        chosen = {t.name for t in val_tracks}
+        train_tracks = [t for t in tracks if t.name not in chosen]
     else:
         train_tracks, val_tracks = split_by_track(tracks, args.val_ratio, args.seed)
+    if args.exclude:
+        # 留給最終評估的歌(例如 musdb-test-*):訓練與挑選都不能碰
+        held_out = {t.name for t in select_tracks(tracks, args.exclude)}
+        train_tracks = [t for t in train_tracks if t.name not in held_out]
+        val_tracks = [t for t in val_tracks if t.name not in held_out]
+    for label, subset in (("訓練", train_tracks), ("驗證", val_tracks)):
+        if all(t.solo for t in subset):
+            raise SystemExit(f"{label}集裡沒有任何附伴奏的歌,純人聲無從配對")
     print(f"裝置      {device}")
     print(f"資料      {describe(tracks)}")
     print(f"  訓練    {describe(train_tracks)}")
-    print(f"  驗證    {describe(val_tracks)}  ({', '.join(t.name for t in val_tracks)})")
+    names = [t.name for t in val_tracks]
+    print(f"  驗證    {describe(val_tracks)}  ({', '.join(names[:8])}"
+          f"{' …' if len(names) > 8 else ''})")
 
     data_config = DataConfig(segment_samples=args.segment_samples,
                              independent_prob=args.independent_prob,
-                             augment_prob=args.augment_prob)
+                             augment_prob=args.augment_prob,
+                             solo_prob=args.solo_prob,
+                             reverb_prob=args.reverb_prob)
+    # 驗證可以只用原曲的配對(--val-independent-prob 0),量的才是真實混音
+    val_config = data_config if args.val_independent_prob is None else \
+        replace(data_config, independent_prob=args.val_independent_prob)
     train_data = make_dataset(train_tracks, data_config, args.batch_size,
                               seed=args.seed)
-    val_data = make_dataset(val_tracks, data_config, args.batch_size,
+    val_data = make_dataset(val_tracks, val_config, args.batch_size,
                             seed=args.seed + 1, deterministic=True,
                             length=args.val_batches * args.batch_size)
 
@@ -441,9 +454,18 @@ def main(argv: list[str] | None = None) -> int:
                         choices=["vocals", "accompaniment", "instrumental"],
                         help="best.h5 依哪一軌的改善量挑選")
     parser.add_argument("--independent-prob", type=float, default=0.5)
+    parser.add_argument("--solo-prob", type=float, default=0.4,
+                        help="從純人聲歌曲(GTSinger 等)取人聲的樣本比例")
+    parser.add_argument("--reverb-prob", type=float, default=0.5,
+                        help="純人聲加上合成殘響的機率")
     parser.add_argument("--val-ratio", type=float, default=0.15)
     parser.add_argument("--val-tracks", default="",
-                        help="逗號分隔的驗證集歌名(資料夾名),指定時取代隨機切分")
+                        help="逗號分隔的驗證集歌名或樣式(musdb-valid-*),"
+                             "指定時取代隨機切分")
+    parser.add_argument("--val-independent-prob", type=float, default=None,
+                        help="驗證樣本的隨機重配比例;預設同訓練")
+    parser.add_argument("--exclude", default="",
+                        help="訓練與驗證都不用的歌(名稱或樣式),留給最終評估")
     parser.add_argument("--val-every", type=int, default=250)
     parser.add_argument("--val-batches", type=int, default=8)
     parser.add_argument("--log-every", type=int, default=50)

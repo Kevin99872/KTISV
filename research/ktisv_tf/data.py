@@ -57,26 +57,42 @@ class DataConfig:
     silence_retries: int = 8
     # 音色增強的機率(0 = 關閉)。見 augment_timbre。
     augment_prob: float = 0.0
+    # 資料裡有純人聲歌曲(沒有伴奏,例如 GTSinger)時,多少比例的樣本取它的
+    # 人聲。按「首」均勻抽的話,幾百首短短的純人聲會把真實分軌淹沒。
+    solo_prob: float = 0.4
+    # 純人聲是乾錄音,真實混音裡的人聲幾乎都帶殘響。見 add_reverb。
+    reverb_prob: float = 0.5
     mix: MixConfig = field(default_factory=MixConfig)
 
 
 # ── 資料來源 ────────────────────────────────────────────────────────────
 class Track:
-    """一首歌的人聲與伴奏。只記路徑與長度,讀取時才碰硬碟。"""
+    """一首歌的人聲與伴奏。只記路徑與長度,讀取時才碰硬碟。
 
-    def __init__(self, name: str, vocals: Path, accompaniment: Path) -> None:
+    ``accompaniment`` 可以是 ``None``:純人聲資料集(GTSinger 等)只有人聲,
+    取樣時一律配上別首歌的伴奏。
+    """
+
+    def __init__(self, name: str, vocals: Path,
+                 accompaniment: Path | None) -> None:
         self.name = name
         self.group = name
         self.vocals_path = vocals
         self.accompaniment_path = accompaniment
 
         info_v = sf.info(str(vocals))
-        info_a = sf.info(str(accompaniment))
-        if info_v.samplerate != info_a.samplerate:
-            raise ValueError(f"{name}:兩軌取樣率不同 "
-                             f"({info_v.samplerate} vs {info_a.samplerate})")
         self.samplerate = int(info_v.samplerate)
-        self.frames = int(min(info_v.frames, info_a.frames))
+        self.frames = int(info_v.frames)
+        if accompaniment is not None:
+            info_a = sf.info(str(accompaniment))
+            if info_v.samplerate != info_a.samplerate:
+                raise ValueError(f"{name}:兩軌取樣率不同 "
+                                 f"({info_v.samplerate} vs {info_a.samplerate})")
+            self.frames = int(min(info_v.frames, info_a.frames))
+
+    @property
+    def solo(self) -> bool:
+        return self.accompaniment_path is None
 
     @property
     def seconds(self) -> float:
@@ -192,7 +208,10 @@ def load_tracks(root: Path, limit: int | None = None) -> list[Track]:
         accompaniment = (_find(folder, "accompaniment")
                          or _find(folder, "instrumental")
                          or _find(folder, "no_vocals"))
-        if vocals is None or accompaniment is None:
+        # 只有人聲的資料夾要明確標記(prepare 會寫 solo.txt),以免把「伴奏
+        # 檔不小心不見了」的歌靜靜地當成純人聲。
+        if vocals is None or (accompaniment is None
+                              and not (folder / "solo.txt").exists()):
             continue
         track = Track(folder.name, vocals, accompaniment)
         if track.frames <= 0:
@@ -201,11 +220,23 @@ def load_tracks(root: Path, limit: int | None = None) -> list[Track]:
         if limit and len(tracks) >= limit:
             break
 
-    if not tracks:
+    if not any(not t.solo for t in tracks):
         raise FileNotFoundError(
             f"{root} 底下找不到任何 vocals/accompaniment 配對資料夾。"
-            "先跑 python -m ktisv_research.label_cache 產生訓練資料。")
+            "先跑 python -m ktisv_tf.prepare 或 ktisv_research.label_cache "
+            "產生訓練資料。")
     return tracks
+
+
+def select_tracks(tracks: list[Track], patterns: str) -> list[Track]:
+    """逗號分隔的歌名或 fnmatch 樣式(``musdb-valid-*``)挑出歌曲。"""
+    from fnmatch import fnmatch
+
+    wanted = [p.strip() for p in patterns.split(",") if p.strip()]
+    missing = [p for p in wanted if not any(fnmatch(t.name, p) for t in tracks)]
+    if missing or not wanted:
+        raise SystemExit(f"--val-tracks 找不到:{', '.join(missing)}")
+    return [t for t in tracks if any(fnmatch(t.name, p) for p in wanted)]
 
 
 def _find(folder: Path, name: str) -> Path | None:
@@ -233,7 +264,11 @@ def split_by_track(tracks: list[Track], val_ratio: float = 0.15,
 
 def describe(tracks: list[Track]) -> str:
     total = sum(t.seconds for t in tracks)
-    return f"{len(tracks)} 首 / {total / 60:.1f} 分鐘 @ {tracks[0].samplerate} Hz"
+    solo = [t for t in tracks if t.solo]
+    extra = (f"(其中純人聲 {len(solo)} 首 / "
+             f"{sum(t.seconds for t in solo) / 60:.1f} 分鐘)" if solo else "")
+    return (f"{len(tracks)} 首 / {total / 60:.1f} 分鐘 @ "
+            f"{tracks[0].samplerate} Hz{extra}")
 
 
 # ── 取樣 ────────────────────────────────────────────────────────────────
@@ -242,13 +277,19 @@ def sample_once(tracks: list[Track], config: DataConfig,
     """抽一個訓練樣本。回傳 (混音, 人聲),都是 (channels, samples)。"""
     length = config.segment_samples
     vocals = accompaniment = None
+    paired = [t for t in tracks if not t.solo]
+    solo = [t for t in tracks if t.solo]
+    use_solo = False
 
     for _ in range(config.silence_retries):
-        track = tracks[int(rng.integers(len(tracks)))]
+        use_solo = bool(solo) and rng.random() < config.solo_prob
+        pool = solo if use_solo else paired
+        track = pool[int(rng.integers(len(pool)))]
         vocals = track.read("vocals", _start(track, length, rng), length)
 
-        if rng.random() < config.independent_prob and len(tracks) > 1:
-            other = tracks[int(rng.integers(len(tracks)))]
+        if track.solo or (rng.random() < config.independent_prob
+                          and len(paired) > 1):
+            other = paired[int(rng.integers(len(paired)))]
         else:
             other = track
         accompaniment = other.read("accompaniment",
@@ -259,6 +300,8 @@ def sample_once(tracks: list[Track], config: DataConfig,
         if not is_mostly_silent(vocals):
             break
 
+    if use_solo and rng.random() < config.reverb_prob:
+        vocals = add_reverb(vocals, rng)
     vocals = augment_vocals(vocals, rng)
     if config.augment_prob > 0:
         if rng.random() < config.augment_prob:
@@ -301,6 +344,34 @@ def augment_timbre(audio: np.ndarray, rng: np.random.Generator,
         out = np.stack([mid + side, mid - side], axis=1)
         if rng.random() < 0.5:
             out = out[:, ::-1]
+    return np.ascontiguousarray(out, dtype=np.float32)
+
+
+def add_reverb(vocals: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+    """合成的立體聲殘響:指數衰減的雜訊脈衝響應。
+
+    純人聲資料集是乾錄音;真實混音裡的人聲幾乎都掛著殘響,而那條殘響尾巴
+    在 MUSDB 的答案裡**算人聲**。只拿乾聲訓練,模型會把殘響尾巴丟進伴奏 ——
+    正是「伴奏裡飄著一層人聲」的那種漏。
+
+    左右聲道用不同的雜訊,殘響才有寬度(真實的殘響器也是這樣)。答案是
+    加了殘響之後的人聲,所以混音 = 人聲 + 伴奏的可加性不受影響。
+    """
+    from scipy.signal import fftconvolve
+
+    rt60 = rng.uniform(0.3, 1.8)
+    n = int(min(rt60, 1.2) * SAMPLE_RATE)
+    t = np.arange(n) / SAMPLE_RATE
+    decay = np.exp(-6.91 * t / rt60)                 # 60 dB 衰減 = e^-6.91
+    predelay = int(rng.uniform(0.0, 0.04) * SAMPLE_RATE)
+    tail = np.zeros((predelay + n, 2), np.float32)
+    tail[predelay:] = rng.standard_normal((n, 2)) * decay[:, None]
+    tail /= np.sqrt(np.sum(tail ** 2, axis=0, keepdims=True)) + 1e-9
+
+    wet = np.stack([fftconvolve(vocals[:, c], tail[:, c])[:len(vocals)]
+                    for c in range(vocals.shape[1])], axis=1)
+    mix = rng.uniform(0.1, 0.45)
+    out = (1.0 - mix) * vocals + mix * wet
     return np.ascontiguousarray(out, dtype=np.float32)
 
 
@@ -349,5 +420,6 @@ def _entropy() -> int:
     return int(_counter.integers(0, 2 ** 31 - 1))
 
 
-__all__ = ["DataConfig", "Track", "load_tracks", "split_by_track", "describe",
-           "sample_once", "make_dataset"]
+__all__ = ["DataConfig", "Track", "load_tracks", "select_tracks",
+           "split_by_track", "describe", "sample_once", "add_reverb",
+           "make_dataset"]
